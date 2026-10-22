@@ -1,0 +1,74 @@
+# sciplot
+
+一个轻量、脚本驱动的 CFD 科研数据处理与绘图工具包。第一版重点是：1D/2D/3D 数据容器彼此独立，读取/转换、计算、绘图可单独运行；2D 不假定规则网格；3D 始终区分 PointData 和 CellData。
+
+## 安装
+
+项目已约定使用本地虚拟环境 `.env`：
+
+```bash
+python3 -m venv .env
+. .env/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
+
+## 直接作图
+
+```python
+from sciplot import Data2D, Plot2D
+
+data = Data2D.from_vtk("slice.vtu")       # 保留 PointData 与 CellData
+plot = Plot2D(style="paper")
+plot.contourf(data, field="p", cmap="turbo", vmin=0, vmax=100)
+plot.contour(data, field="p", levels=[20, 40, 60, 80], colors="black")
+plot.set_axes(xlabel=r"$x/L$", ylabel=r"$y/L$", xlim=(-2, 5), ylim=(-3, 3))
+plot.save("pressure.pdf")
+```
+
+对实际坐标归一化，传入会改变坐标值的 `coordinate_transform`，而不是只改标签：
+
+```python
+plot.contourf(data, "p", coordinate_transform=lambda xy: xy / 0.05)
+```
+
+## YAML 后处理流程
+
+转换和计算/绘图是两个独立入口；模板位于 `configs/`。先将原始表格、VTK 或 OpenFOAM 结果规范化并保存：
+
+```bash
+python scripts/convert_data.py configs/convert_1d.yml
+python scripts/calculate_and_plot.py configs/plot_1d.yml
+```
+
+`convert_data.py` 支持：
+
+- `dimension: 1`：CSV/TXT/OpenFOAM `postProcessing` 采样表格 -> CSV；自动使用注释中的列名（例如 `# x p Ux`）。
+- `dimension: 2`：二维 VTK -> `.npz`，其中 PointData、CellData 和 cell centers 分别保存。
+- `dimension: 3`：`.vtu`/`.vti`/`.vtm` 或 `.foam` -> ParaView 可读的 VTK XML 文件。
+
+`calculate_and_plot.py` 的 `calculations` 可安全地执行 `scale`、`offset`、`magnitude`；不执行 YAML 中的任意 Python。3D 计算必须明确写 `location: point` 或 `location: cell`，避免隐式混合数据位置。完整字段见 [`configs/plot_1d.yml`](configs/plot_1d.yml)。
+
+## 三个可执行示例
+
+```bash
+python examples/example_1d.py
+python examples/example_2d.py
+python examples/example_3d.py
+```
+
+输出在 `output/`。3D 示例使用 PyVista 离屏渲染，生成 PNG 和 VTK ImageData。在无显示服务的 Linux 容器中，它会始终生成 `.vti`，并在缺少 EGL/OSMesa 时安全跳过 PNG、提示所需系统渲染库；有 X/EGL/OSMesa 的工作站会生成二者。
+
+## 数据模型与限制
+
+- `Data1D`：`x`、按名称组织的 fields、单位和元数据；按 x 排序。
+- `Data2D`：散点/非规则网格上的 `point_fields`，以及单独的 `cell_fields`/`cell_centers`；云图采用 Matplotlib 三角剖分，截线采用 SciPy 插值。
+- `Data3D`：持有 PyVista mesh 或 MultiBlock；`field_info`/`location_of()` 显式报告 point/cell 位置。`face`、`edge` 是为后续扩展预留的位置类型，第一版不导出交错量。
+
+真实 OpenFOAM case 在当前空项目中不存在，因此 `.foam` 读取路径尚未对真实样例做集成验证；VTK、合成 1D/2D/3D 数据和图像输出均有测试覆盖。
+
+## 测试
+
+```bash
+pytest -q
+```

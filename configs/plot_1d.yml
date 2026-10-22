@@ -1,0 +1,21 @@
+# Read normalized data, calculate a derived field, then write an image.
+input:
+  dimension: 1
+  path: output/line_p.csv
+calculations:
+  - field: p
+    output: p_kPa
+    operation: scale
+    factor: 0.001
+processed_output: output/line_p_with_kpa.csv
+plot:
+  dimension: "1"
+  field: p_kPa
+  output: output/pressure.pdf
+  style: paper
+  label: simulation
+  line: {color: C0, linewidth: 1.5}
+  axes:
+    xlabel: "$x/L$"
+    ylabel: "$p$ [kPa]"
+    legend: true

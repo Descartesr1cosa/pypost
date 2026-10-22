@@ -1,0 +1,7 @@
+# Raw OpenFOAM postProcessing table -> reusable CSV
+input:
+  dimension: 1
+  path: input/line_p.xy
+  x: x
+output:
+  path: output/line_p.csv
