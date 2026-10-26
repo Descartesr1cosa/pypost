@@ -33,6 +33,22 @@ the self-contained [Q demo](sciplot/demos/q_demo/README.md).
 
 ## Bundled demos and environment checks
 
+## Numerical 1-D publication plots
+
+The default 1-D profile is `paper-1d`: `plot.yml` holds scientific content,
+optional `style.yml` holds visual style, and optional `layout.yml` holds
+millimetre/percent geometry. The editor is a temporary data browser; numerical
+YAML is the only source of final layout state.
+
+```bash
+pypost plot plot.yml
+pypost check-figure plot.yml --report publication-report.json
+pypost style export paper-1d --out style.yml
+pypost layout export paper-1d --out layout.yml
+```
+
+See the bilingual [numerical layout tutorial](docs/tutorials/1d/numerical-layout.md).
+
 The official demos are self-contained: they do not read `pypost_examples/` or
 another external case directory.
 

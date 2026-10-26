@@ -1,0 +1,10 @@
+# All physical geometry is numerical and independent of GUI browsing.
+version: 1
+mode: fixed
+figure: {width: 168, height: 92, unit: mm, dpi: 180}
+margins: {unit: percent, left: 14, right: 5, bottom: 19, top: 8, wspace: 8, hspace: 8}
+labels:
+  xlabel: {gap: {value: 7, unit: pt}}
+  ylabel: {gap: {value: 8, unit: pt}}
+  title: {gap: {value: 6, unit: pt}}
+legend: {position: best}

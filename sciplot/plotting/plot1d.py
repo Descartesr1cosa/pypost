@@ -13,7 +13,7 @@ class Plot1D:
     def __init__(self, figsize=(6.4, 4.2), style: str | None = None, dpi: int | None = None,
                  ax=None, size_unit: str = "in"):
         """Create a plot or wrap an existing Axes without global rcParam changes."""
-        self.style = style_values(style)
+        self.style = dict(style) if isinstance(style, dict) else style_values(style)
         if size_unit not in {"in", "mm"}:
             raise ValueError("size_unit must be 'in' or 'mm'")
         if size_unit == "mm":

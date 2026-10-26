@@ -71,6 +71,14 @@ def _copy_demo_project(name: str, destination: str | Path) -> Path:
     # work exactly as printed while retaining the original bundled resource.
     if name == "curve-comparison":
         (target / "curve_comparison.yml").rename(target / "plot.yml")
+        # Keep the copied beginner project editable by older tutorials that
+        # placed axes beneath plot. The bundled source itself uses the cleaner
+        # top-level scientific axes mapping.
+        import yaml
+        project_config = read_yaml(target / "plot.yml")
+        if project_config.get("axes") and "axes" not in project_config.get("plot", {}):
+            project_config.setdefault("plot", {})["axes"] = deepcopy(project_config["axes"])
+            (target / "plot.yml").write_text(yaml.safe_dump(project_config, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return target
 
 
@@ -126,7 +134,16 @@ def main(argv=None) -> int:
     plot_p.add_argument("--show", action="store_true", help="Preview interactively when DISPLAY is available")
     edit_p = commands.add_parser("edit", help="Interactively adjust a 1-D layout or prepared Q view")
     edit_p.add_argument("config", help="Curve or prepared Q YAML file")
-    edit_p.add_argument("--layout", help="JSON path to save instead of plot.layout.overrides")
+    edit_p.add_argument("--layout", help=argparse.SUPPRESS)  # retained only for argument compatibility
+    check_p = commands.add_parser("check-figure", help="Report final publication font sizes without writing images")
+    check_p.add_argument("config", help="1-D curve YAML file")
+    check_p.add_argument("--report", help="Optional publication-report.json path")
+    style_p = commands.add_parser("style", help="Manage built-in 1-D publication styles").add_subparsers(dest="style_command", required=True)
+    style_export = style_p.add_parser("export", help="Export a readable default style.yml")
+    style_export.add_argument("profile", choices=("paper-1d",)); style_export.add_argument("--out", required=True)
+    layout_p = commands.add_parser("layout", help="Manage built-in numerical layout profiles").add_subparsers(dest="layout_command", required=True)
+    layout_export = layout_p.add_parser("export", help="Export a readable default layout.yml")
+    layout_export.add_argument("profile", choices=("paper-1d",)); layout_export.add_argument("--out", required=True)
     prepare_p = commands.add_parser("prepare", help="Create a portable Q preview package without rendering")
     prepare_p.add_argument("config", help="Q YAML with a standard volume or Q surface")
     prepare_p.add_argument("--time", type=float)
@@ -159,6 +176,18 @@ def main(argv=None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["valid"] else 1
     if args.command == "doctor": print(_doctor()); return 0
+    if args.command in {"style", "layout"}:
+        from .plotting.paper1d import export_profile
+        print(export_profile(args.command, args.out, args.profile)); return 0
+    if args.command == "check-figure":
+        import json
+        from .curve import check_figure
+        config_path = _config(args.config); report = check_figure(read_yaml(config_path), config_path.parent)
+        if args.report:
+            from .plotting.paper1d import write_publication_report
+            target = Path(args.report); target = target if target.is_absolute() else config_path.parent / target
+            write_publication_report(target, report)
+        print(json.dumps(report, ensure_ascii=False, indent=2)); return 0 if report["overall"] == "PASS" else 1
     if args.command == "demo":
         demos = _demos()
         if args.demo_command == "list":
@@ -238,12 +267,10 @@ def main(argv=None) -> int:
         from .plotting.figure_editor import ensure_interactive_backend
         ensure_interactive_backend()
         from .curve import build_figure
-        from .plotting.figure_editor import open_editor
+        from .plotting.figure_editor import open_data_browser
         renderer, panels, annotations, plot_cfg, defaults = build_figure(config, config_path.parent)
-        layout = args.layout or plot_cfg.get("layout", {}).get("overrides")
-        target = Path(layout) if layout else config_path.with_suffix(".layout.json")
-        if not target.is_absolute(): target = config_path.parent / target
-        open_editor(renderer.fig, panels, annotations, target, defaults)
+        print("Data browser: Pan/Zoom/Home change only the temporary view. Edit plot.yml, style.yml, or layout.yml for reproducible output.")
+        open_data_browser(renderer.fig)
         return 0
     if args.command == "prepare":
         config_path = _config(args.config); _, _, _, _, load_config, prepare, _ = _q_workflow()

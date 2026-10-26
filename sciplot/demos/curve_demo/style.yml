@@ -1,0 +1,7 @@
+# Optional visual overrides for the built-in paper-1d profile.
+fonts:
+  size_pt: 10
+lines:
+  width_pt: 1.35
+grid:
+  major: {alpha: 0.22, linewidth: 0.5}

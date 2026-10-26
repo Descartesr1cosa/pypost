@@ -219,3 +219,14 @@ def open_editor(fig, panels, annotations, layout_path, default_layout) -> Figure
     import matplotlib.pyplot as plt
     plt.show()
     return editor
+
+
+def open_data_browser(fig) -> None:
+    """Show Matplotlib's native pan/zoom toolbar without persisting view state.
+
+    Final x/y ranges, layout, labels, legends, and annotations are numerical
+    YAML parameters.  Deliberately do not connect the legacy draggable-layout
+    handlers here: Home/Pan/Zoom are transient exploration only.
+    """
+    import matplotlib.pyplot as plt
+    plt.show()

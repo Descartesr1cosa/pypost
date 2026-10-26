@@ -24,18 +24,16 @@ datasets:
     label: coarse grid
     kind: scatter
     style: {color: C2, marker: s, s: 20}
+axes:
+  xlabel: "$t^*$"
+  ylabel: "$C_d$"
+  legend: true
+  legend_loc: best
+  grid: {alpha: 0.25}
 plot:
-  style: paper
-  # Absent until `pypost edit plot.yml` saves it; then normal `pypost plot`
-  # automatically reuses the same layout.
-  layout: {mode: auto, overrides: layout.json}
+  profile: paper-1d
+  style_file: style.yml
+  layout_file: layout.yml
   outputs:
     - curve_comparison.pdf
     - curve_comparison.svg
-  figure: {size: [6.6, 3.6], dpi: 180}
-  axes:
-    xlabel: "$t^*$"
-    ylabel: "$C_d$"
-    legend: true
-    legend_loc: best
-    grid: {alpha: 0.25}
