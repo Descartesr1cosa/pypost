@@ -52,6 +52,11 @@ def _activate_backend(matplotlib, candidate: str, probes: tuple[str, ...]) -> bo
 
 def _gui_error(platform: str, headless: bool) -> RuntimeError:
     if headless:
+        if platform.startswith("win") or platform == "darwin":
+            return RuntimeError(
+                "`pypost edit` requires a graphical desktop session and an interactive Matplotlib backend. "
+                "This process is configured for headless Agg output; unset MPLBACKEND and check Tk/Qt on a desktop."
+            )
         return RuntimeError(
             "`pypost edit` requires a graphical desktop session on Linux (set DISPLAY or WAYLAND_DISPLAY). "
             "Use `pypost plot` for headless PDF/SVG/PNG export."
@@ -71,6 +76,11 @@ def ensure_interactive_backend(*, platform: str | None = None, environ: dict[str
     """
     platform = platform or sys.platform
     environ = dict(os.environ if environ is None else environ)
+    # A CI/user explicitly selecting Agg has declared a non-GUI process. Do
+    # not turn that process into TkAgg merely because Windows has no DISPLAY
+    # convention; doing so contaminates subsequent headless pyplot tests.
+    if environ.get("MPLBACKEND", "").lower() in _NON_INTERACTIVE_BACKENDS:
+        raise _gui_error(platform, headless=True)
     if not _has_desktop_session(platform, environ):
         raise _gui_error(platform, headless=True)
     import matplotlib
@@ -80,11 +90,16 @@ def ensure_interactive_backend(*, platform: str | None = None, environ: dict[str
         # example a copied matplotlibrc may name QtAgg without Qt installed).
         # Verify the common built-ins before accepting it.
         known = {candidate.lower(): (candidate, probes) for candidate, probes in _backend_candidates(platform)}
-        if backend not in known:
+        # On macOS, a stale TkAgg setting must not leapfrog the native MacOSX
+        # backend. The candidate order below is the documented preference.
+        if platform == "darwin" and backend != "macosx":
+            pass
+        elif backend not in known:
             return backend
-        candidate, probes = known[backend]
-        if _activate_backend(matplotlib, candidate, probes):
-            return candidate.lower()
+        else:
+            candidate, probes = known[backend]
+            if _activate_backend(matplotlib, candidate, probes):
+                return candidate.lower()
         # Fall through and try the remaining supported native backends.
     for candidate, probes in _backend_candidates(platform):
         if _activate_backend(matplotlib, candidate, probes):

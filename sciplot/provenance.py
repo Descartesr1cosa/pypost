@@ -34,6 +34,17 @@ def file_signature(path: str | Path) -> dict[str, Any]:
     return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def content_signature(path: str | Path) -> dict[str, Any]:
+    """Content-address small presentation/configuration files.
+
+    Windows filesystems can retain an mtime and size across two quick JSON
+    writes. Cameras and YAML/view state are small, so a SHA-256 is a safer
+    cache dependency than weakening the large-CFD-data signature policy.
+    """
+    path = Path(path).resolve()
+    return {**file_signature(path), "sha256": sha256(path.read_bytes()).hexdigest()}
+
+
 def vtk_dependency_signature(path: str | Path) -> dict[str, Any]:
     """Sign a VTK XML input and every file referenced by a ``.vtm`` tree."""
     seen: set[Path] = set()

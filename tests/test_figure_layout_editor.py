@@ -123,3 +123,20 @@ def test_backend_error_explains_tk_and_qt_remedies(monkeypatch):
     monkeypatch.setattr(figure_editor, "_activate_backend", lambda *args: False)
     with pytest.raises(RuntimeError, match="python -m tkinter.*PyQt6/PySide6"):
         ensure_interactive_backend(platform="win32", environ={})
+
+
+def test_windows_agg_environment_never_switches_to_tk(monkeypatch):
+    attempted = []
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda *args: attempted.append(args) or True)
+    with pytest.raises(RuntimeError, match="configured for headless Agg"):
+        ensure_interactive_backend(platform="win32", environ={"MPLBACKEND": "Agg"})
+    assert not attempted
+
+
+def test_macos_stale_tk_backend_does_not_precede_native_backend(monkeypatch):
+    import matplotlib as mpl
+    monkeypatch.setattr(mpl, "get_backend", lambda: "TkAgg")
+    selected = []
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda matplotlib, candidate, probes: selected.append(candidate) or candidate == "MacOSX")
+    assert ensure_interactive_backend(platform="darwin", environ={}) == "macosx"
+    assert selected == ["MacOSX"]

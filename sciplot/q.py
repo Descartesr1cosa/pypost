@@ -16,7 +16,7 @@ from copy import deepcopy
 import numpy as np
 
 from .data import Data3D
-from .provenance import FORMAT_VERSION, file_signature, fingerprint, read_record, vtk_dependency_signature, write_record
+from .provenance import FORMAT_VERSION, content_signature, file_signature, fingerprint, read_record, vtk_dependency_signature, write_record
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -450,7 +450,7 @@ def add_scene(plotter, surface, scene: dict[str, Any], time: float | None = None
 
 def render_fingerprint(surface: Path, camera_path: Path | dict[str, Any], scene: dict[str, Any], time: float | None) -> str:
     """Fingerprint presentation inputs independently from Q extraction inputs."""
-    camera = file_signature(camera_path) if isinstance(camera_path, Path) else camera_path
+    camera = content_signature(camera_path) if isinstance(camera_path, Path) else camera_path
     return fingerprint({"surface": file_signature(surface), "camera": camera, "scene": scene,
                         "time": time, "image_size": scene.get("image_size", [1280, 720])})
 

@@ -64,3 +64,14 @@ def test_profile_exports_are_human_readable_and_standard_npz_plots(tmp_path):
     assert main(["layout", "export", "paper-1d", "--out", str(tmp_path / "layout.yml")]) == 0
     assert "colors:" in (tmp_path / "style.yml").read_text()
     assert "margins:" in (tmp_path / "layout.yml").read_text()
+
+
+def test_explicit_ticks_are_not_replaced_by_nice_locator(tmp_path):
+    path = _minimal(tmp_path, "axes:\n  xlim: [0, 2]\n  xticks: [0, 0.7, 2]\n  yticks: [0.3, 0.4]\n")
+    # Replace the default axes mapping rather than relying on duplicate YAML keys.
+    path.write_text("kind: curve\ndatasets:\n  - {path: force.csv, x: time, y: Cd}\naxes: {xlabel: t, ylabel: Cd, xlim: [0, 2], xticks: [0, 0.7, 2], yticks: [0.3, 0.4]}\nplot: {outputs: [figure.png]}\n")
+    config = __import__("sciplot.workflow", fromlist=["read_yaml"]).read_yaml(path)
+    _, panels, *_ = build_figure(config, tmp_path)
+    np.testing.assert_allclose(panels["panel-0"].get_xticks(), [0, .7, 2])
+    np.testing.assert_allclose(panels["panel-0"].get_yticks(), [.3, .4])
+    np.testing.assert_allclose(panels["panel-0"].get_xlim(), [0, 2])

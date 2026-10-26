@@ -12,8 +12,9 @@ from typing import Any
 import warnings
 
 import matplotlib as mpl
+import numpy as np
 from matplotlib import font_manager
-from matplotlib.ticker import MaxNLocator, LogLocator
+from matplotlib.ticker import FixedLocator, MaxNLocator, LogLocator
 import yaml
 
 
@@ -194,15 +195,29 @@ def legend_kwargs(layout: dict[str, Any], style: dict[str, Any], fallback: dict[
     return result
 
 
-def apply_nice_ticks(ax, style: dict[str, Any], explicit_x: bool, explicit_y: bool) -> None:
+def _linear_endpoint_ticks(limits: tuple[float, float], count: int, include_endpoints: bool) -> list[float]:
+    """Generate stable 1/2/2.5/5 ticks without changing the view interval."""
+    low, high = map(float, limits)
+    if not np.isfinite([low, high]).all() or low == high: return [low]
+    locator = MaxNLocator(nbins=max(2, count), steps=[1, 2, 2.5, 5, 10])
+    values = [float(v) for v in locator.tick_values(low, high) if low <= v <= high]
+    if include_endpoints:
+        values.extend((low, high))
+    # Round only for de-duplication; retain physical endpoint values.
+    return sorted({round(value, 14) for value in values})
+
+
+def apply_nice_ticks(ax, style: dict[str, Any], explicit_x: bool, explicit_y: bool,
+                     explicit_xticks: bool = False, explicit_yticks: bool = False) -> None:
     limits = style.get("limits", {})
     if not limits.get("nice_limits", True): return
-    count = int(limits.get("target_ticks", 5)); steps = [1, 2, 2.5, 5, 10]
-    if not explicit_x:
-        if ax.get_xscale() == "linear": ax.xaxis.set_major_locator(MaxNLocator(nbins=count, steps=steps))
+    count = int(limits.get("target_ticks", 5)); endpoints = bool(limits.get("include_endpoints", True))
+    if not explicit_xticks:
+        if ax.get_xscale() == "linear": ax.xaxis.set_major_locator(FixedLocator(_linear_endpoint_ticks(ax.get_xlim(), count, endpoints)))
         elif ax.get_xscale() == "log": ax.xaxis.set_major_locator(LogLocator(base=10))
-    if not explicit_y:
-        if ax.get_yscale() == "linear": ax.yaxis.set_major_locator(MaxNLocator(nbins=count, steps=steps))
+        # symlog has a dedicated symmetrical locator; preserve it.
+    if not explicit_yticks:
+        if ax.get_yscale() == "linear": ax.yaxis.set_major_locator(FixedLocator(_linear_endpoint_ticks(ax.get_ylim(), count, endpoints)))
         elif ax.get_yscale() == "log": ax.yaxis.set_major_locator(LogLocator(base=10))
 
 
@@ -220,6 +235,27 @@ def _visible_text(fig) -> list[tuple[str, Any]]:
     return [(name, artist) for name, artist in entries if artist.get_visible() and artist.get_text()]
 
 
+def _layout_check(fig) -> dict[str, Any]:
+    """Inspect rendered text extents after constrained/fixed layout has run."""
+    fig.canvas.draw()
+    canvas = fig.bbox; renderer = fig.canvas.get_renderer()
+    entries = _visible_text(fig)
+    clipped, overlaps = [], []
+    boxes = []
+    for name, artist in entries:
+        box = artist.get_window_extent(renderer)
+        if box.x0 < canvas.x0 - 1 or box.y0 < canvas.y0 - 1 or box.x1 > canvas.x1 + 1 or box.y1 > canvas.y1 + 1:
+            clipped.append({"object": name, "text": artist.get_text()})
+        # Tick labels are intentionally close to each other; only compare
+        # labels/titles/legend/annotations for actionable collision warnings.
+        if "tick" not in name:
+            for other_name, other_box in boxes:
+                if box.overlaps(other_box): overlaps.append({"first": other_name, "second": name})
+            boxes.append((name, box))
+    return {"clipped": clipped, "overlaps": overlaps,
+            "status": "PASS" if not clipped and not overlaps else "WARN"}
+
+
 def publication_report(fig, publication: dict[str, Any] | None, font_info: dict[str, str]) -> dict[str, Any] | None:
     if not publication: return None
     export_width = fig.get_figwidth() * MM_PER_INCH
@@ -235,6 +271,9 @@ def publication_report(fig, publication: dict[str, Any] | None, font_info: dict[
     if policy == "auto":
         for _, artist in entries:
             if artist.get_fontsize() < required_export: artist.set_fontsize(required_export)
+        # Text growth precedes this draw, allowing constrained layout to solve
+        # margins again rather than checking stale pre-growth positions.
+        fig.canvas.draw()
     rows = []
     for name, artist in _visible_text(fig):
         size = float(artist.get_fontsize()); final = size * scale
@@ -242,9 +281,10 @@ def publication_report(fig, publication: dict[str, Any] | None, font_info: dict[
                      "status": "PASS" if final + 1e-9 >= minimum else "FAIL"})
     failed = [row for row in rows if row["status"] == "FAIL"]
     mathtext = any("$" in row["text"] for row in rows)
+    layout = _layout_check(fig)
     report = {"export_width_mm": export_width, "placement_width_mm": placement, "scale": scale,
               "min_text_pt": minimum, "font_policy": policy, "font": font_info, "objects": rows,
-              "overall": "FAIL" if failed else "PASS", "mathtext_note": "Parent text font sizes are checked; Mathtext sub/superscripts may render smaller." if mathtext else None}
+              "layout": layout, "overall": "FAIL" if failed else "PASS", "mathtext_note": "Parent text font sizes are checked; Mathtext sub/superscripts may render smaller." if mathtext else None}
     if failed and policy == "error":
         raise ValueError("Publication font check failed: " + ", ".join(f"{row['object']}={row['final_pt']:.2g}pt" for row in failed[:5]))
     if failed and policy == "warn": warnings.warn("Publication font check failed; see publication report.", stacklevel=2)

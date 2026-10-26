@@ -72,7 +72,11 @@ def _curve(plot: Plot1D, item: dict[str, Any], base: Path, axes: dict[str, Any] 
     if cycle:
         colors, linestyles, markers = cycle.get("colors", []), cycle.get("linestyles", []), cycle.get("markers", [])
         if colors: style.setdefault("color", colors[index % len(colors)])
-        if linestyles and kind == "line": style.setdefault("linestyle", linestyles[(index // max(len(colors), 1)) % len(linestyles)])
+        if linestyles and kind == "line":
+            # First curves differ in both hue and dash pattern (blue/solid,
+            # red/dashed, green/dash-dot, purple/dotted). Subsequent cycles
+            # rotate again instead of producing eight indistinguishable solids.
+            style.setdefault("linestyle", linestyles[(index + index // max(len(colors), 1)) % len(linestyles)])
         if markers and kind in {"scatter", "errorbar"}: style.setdefault("marker", markers[index % len(markers)])
     if kind == "line": return plot.line(data, field, label, xfun, yfun, **style)
     if kind == "scatter": return plot.scatter(data, field, label, xfun, yfun, **style)
@@ -150,7 +154,8 @@ def _panel(plot: Plot1D, spec: dict[str, Any], base: Path, panel_id: str, panels
     if isinstance(grid, dict): plot.grid(grid.get("major"), grid.get("minor"))
     elif grid: plot.grid(True)
     elif style_cfg and style_cfg.get("grid", {}).get("major"): plot.grid(style_cfg["grid"]["major"], style_cfg["grid"].get("minor"))
-    apply_nice_ticks(plot.ax, style_cfg or {}, axes.get("xlim") is not None, axes.get("ylim") is not None)
+    apply_nice_ticks(plot.ax, style_cfg or {}, axes.get("xlim") is not None, axes.get("ylim") is not None,
+                     axes.get("xticks") is not None, axes.get("yticks") is not None)
     if spec.get("panel_label"): plot.panel_label(spec["panel_label"])
     for item in spec.get("hlines", []): plot.hline(item["y"], **{k:v for k,v in item.items() if k != "y"})
     inset = spec.get("inset")
@@ -269,6 +274,8 @@ def compare(config: dict[str, Any], base: str | Path = ".", output: str | Path |
     if report_path:
         target = Path(report_path); target = target if target.is_absolute() else base / target
         write_publication_report(target, report)
+    if figure.get("tight") and publication_cfg:
+        warnings.warn("tight output can change the physical bounding box; publication width in the report refers to the declared Figure size.", stacklevel=2)
     for path in outputs:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
