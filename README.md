@@ -13,6 +13,46 @@ pypost q camera --config configs/examples/q_surface.yml
 pypost q render --config configs/examples/q_surface.yml --time 60.5
 ```
 
+## Bundled demos and environment checks
+
+The official demos are self-contained: they do not read `pypost_examples/` or
+another external case directory.
+
+```bash
+pypost doctor
+pypost demo list
+pypost demo run curve-comparison  # writes PDF and SVG
+pypost demo run q-surface         # writes PNG when EGL/OSMesa/DISPLAY works
+pypost q batch --config examples/assets/q_demo/q_batch.yml --dry-run
+```
+
+The curve input and preview PDF/SVG live in `examples/assets/curve_demo/` and
+are explicitly labelled synthetic. The Q demo in `examples/assets/q_demo/`
+uses the supplied lightweight `.vtp` surface and saved camera; its legacy
+camera.zip scripts remain reference material only. `q camera --config ...
+--time 60.5` opens the same scene configuration later used by `q render`.
+
+For a normalized time series, point Q at its index rather than an original
+case. Selection is explicit for MultiBlock data, so a boundary patch is never
+mistaken for the internal volume:
+
+```yaml
+input:
+  time_index: output/volume_times.json
+  block: internalMesh       # or regionA/internalMesh
+processing:
+  velocity_field: U
+  velocity_location: point
+  iso: 0.01
+output:
+  surface: output/q_t{time:.3f}.vtp
+  image: output/q_t{time:.3f}.png
+```
+
+`pypost q extract --config q.yml --time 60.5` resolves the matching index
+entry. `q batch` rejects non-unique time-step surface or image paths before
+starting subprocesses.
+
 1-D normalized data is a CSV plus optional `.csv.json` sidecar for units and
 provenance.  3-D data stays in VTK XML (`.vtu`, `.vts`, `.vti`, `.vtm`); point
 and cell arrays are never silently merged. Q surfaces are `.vtp` files and do
@@ -97,7 +137,7 @@ python examples/example_3d.py
 - `Data2D`：散点/非规则网格上的 `point_fields`，以及单独的 `cell_fields`/`cell_centers`；云图采用 Matplotlib 三角剖分，截线采用 SciPy 插值。
 - `Data3D`：持有 PyVista mesh 或 MultiBlock；`field_info`/`location_of()` 显式报告 point/cell 位置。`face`、`edge` 是为后续扩展预留的位置类型，第一版不导出交错量。
 
-真实 OpenFOAM case 在当前空项目中不存在，因此 `.foam` 读取路径尚未对真实样例做集成验证；VTK、合成 1D/2D/3D 数据和图像输出均有测试覆盖。
+随附的 OpenFOAM 样例现在包含 `polyMesh` 和时刻字段，但缺少 OpenFOAM reader 所需的完整 `constant/` case 目录，因此不能作为 ParaView/OpenFOAM 的端到端读取集成测试。标准 VTK、合成 1D/2D/3D 数据、Q 解析解及图像输出均有测试覆盖。
 
 ## 测试
 

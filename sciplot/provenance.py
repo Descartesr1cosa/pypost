@@ -5,6 +5,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 
 FORMAT_VERSION = 1
@@ -31,6 +32,35 @@ def file_signature(path: str | Path) -> dict[str, Any]:
     # mtime and size make cache checks cheap; an optional content hash would be
     # excessive for CFD volumes and is intentionally not the default.
     return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def vtk_dependency_signature(path: str | Path) -> dict[str, Any]:
+    """Sign a VTK XML input and every file referenced by a ``.vtm`` tree."""
+    seen: set[Path] = set()
+
+    def visit(item: Path) -> list[dict[str, Any]]:
+        item = item.resolve()
+        if item in seen:
+            return []
+        seen.add(item)
+        records = [file_signature(item)]
+        if item.suffix.lower() != ".vtm":
+            return records
+        try:
+            root = ElementTree.parse(item).getroot()
+        except (ElementTree.ParseError, OSError) as exc:
+            raise ValueError(f"Cannot read VTM dependency list from {item}") from exc
+        for node in root.iter():
+            reference = node.attrib.get("file")
+            if reference:
+                child = (item.parent / reference).resolve()
+                if not child.is_file():
+                    raise FileNotFoundError(f"VTM reference missing: {child}")
+                records.extend(visit(child))
+        return records
+
+    dependencies = visit(Path(path))
+    return {"root": str(Path(path).resolve()), "dependencies": dependencies}
 
 
 def sidecar(path: str | Path) -> Path:

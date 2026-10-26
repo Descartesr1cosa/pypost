@@ -21,7 +21,7 @@ def compare(config: dict[str, Any], base: str | Path = ".") -> Path:
     output = Path(plot_cfg.get("output", "curve_compare.png"))
     if not output.is_absolute():
         output = base / output
-    renderer = Plot1D(figsize=tuple(figure.get("size", (6.4, 4.2))), dpi=figure.get("dpi"))
+    renderer = Plot1D(figsize=tuple(figure.get("size", (6.4, 4.2))), dpi=figure.get("dpi"), style=plot_cfg.get("style"))
     for item in config.get("datasets", []):
         source = Path(item["path"])
         if not source.is_absolute():
@@ -30,23 +30,27 @@ def compare(config: dict[str, Any], base: str | Path = ".") -> Path:
         field = item["y"]
         if field not in data.fields:
             raise KeyError(f"{field!r} not found in {source}; available: {list(data.fields)}")
-        x = data.x * _scale(item, "x")
-        y = data.fields[field] * _scale(item, "y")
+        x_transform = lambda values, scale=_scale(item, "x"): values * scale
+        y_transform = lambda values, scale=_scale(item, "y"): values * scale
         style = dict(item.get("style", {}))
         label = item.get("label", source.stem)
         mode = item.get("kind", "line")
         if mode == "scatter":
-            renderer.ax.scatter(x, y, label=label, **style)
+            renderer.scatter(data, field, label=label, x_transform=x_transform, y_transform=y_transform, **style)
         elif mode == "errorbar":
             error = item.get("yerr")
             if isinstance(error, str):
-                error = data.fields[error] * _scale(item, "y")
-            renderer.ax.errorbar(x, y, yerr=error, label=label, **style)
+                if error not in data.fields:
+                    raise KeyError(f"{error!r} not found in {source}")
+                error = y_transform(data.fields[error])
+            elif error is not None:
+                error = np.asarray(error) * _scale(item, "y")
+            renderer.errorbar(data, field, error, label=label, x_transform=x_transform, y_transform=y_transform, **style)
         elif mode == "band":
             lower, upper = item["lower"], item["upper"]
-            renderer.ax.fill_between(x, data.fields[lower], data.fields[upper], label=label, **style)
+            renderer.band(data, lower, upper, label=label, x_transform=x_transform, y_transform=y_transform, **style)
         elif mode == "line":
-            renderer.ax.plot(x, y, label=label, **style)
+            renderer.line(data, field, label=label, x_transform=x_transform, y_transform=y_transform, **style)
         else:
             raise ValueError("curve kind must be line, scatter, errorbar, or band")
     axes = plot_cfg.get("axes", {})
@@ -58,6 +62,10 @@ def compare(config: dict[str, Any], base: str | Path = ".") -> Path:
     )
     if axes.get("grid", False):
         renderer.ax.grid(True, **(axes["grid"] if isinstance(axes["grid"], dict) else {}))
-    output.parent.mkdir(parents=True, exist_ok=True)
-    renderer.save(output, dpi=figure.get("dpi"), bbox_inches="tight")
-    return output
+    configured = plot_cfg.get("outputs")
+    outputs = [Path(item) for item in configured] if configured else [output]
+    outputs = [item if item.is_absolute() else base / item for item in outputs]
+    for target in outputs:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        renderer.save(target, dpi=figure.get("dpi"), bbox_inches="tight")
+    return outputs[0]

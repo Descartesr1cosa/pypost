@@ -1,0 +1,19 @@
+# Official Q demo: only the lightweight supplied surface is needed.
+input:
+  surface: Q_sample.vtp
+camera: camera.json
+time: 60.5
+scene:
+  image_size: [1280, 720]
+  background: white
+  color_field: speed
+  color_limits: [0.0, 1.5]
+  colormap: coolwarm
+  scalar_bar: true
+  show_sphere: true
+  sphere_center: [0.0, 0.0, 0.0]
+  sphere_radius: 0.5
+  time_label: true
+  time_format: "t* = {time:.3f}"
+output:
+  image: ../../../output/demos/q_surface.png

@@ -1,5 +1,10 @@
 # Q-criterion workflow: cluster → desktop → cluster
 
+> The formal implementation is `sciplot.q` and is run with `pypost q ...`.
+> `q_pipeline.py`, `q_scene.py`, and `camera_editor.py` are retained solely as
+> camera.zip reference material. Use `q_surface.yml` or `q_batch.yml` in this
+> directory for the supported demo workflow.
+
 ## Files
 
 - `q_pipeline.py`: cluster-side extraction and batch rendering

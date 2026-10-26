@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,7 +9,8 @@ import pytest
 from sciplot import Data1D
 from sciplot import Data3D
 from sciplot.inspect import inspect_path
-from sciplot.q import batch, extract, load_config
+from sciplot.provenance import vtk_dependency_signature
+from sciplot.q import apply_camera, batch, camera_from_file, extract, load_config, render_fingerprint, save_camera, select_dataset
 
 
 def test_normalized_csv_round_trips_metadata(tmp_path):
@@ -69,6 +71,39 @@ def test_q_extract_can_compute_vtk_q_from_synthetic_velocity(tmp_path):
     assert record["algorithm"].startswith("vtk.compute_derivative")
 
 
+def test_q_for_rigid_rotation_matches_analytic_q_one():
+    mesh = pv.ImageData(dimensions=(5, 5, 5), spacing=(.25, .25, .25))
+    x, y, z = mesh.points.T
+    mesh.point_data["U"] = np.c_[-y, x, np.zeros_like(z)]  # omega = 1
+    q = mesh.compute_derivative(scalars="U", gradient=False, qcriterion="Q", preference="point").point_data["Q"]
+    assert np.allclose(q, 1.0, atol=1e-12)
+
+
+def test_multiblock_requires_internal_mesh_or_explicit_selector(tmp_path):
+    internal = pv.ImageData(dimensions=(5, 5, 5), spacing=(.25, .25, .25))
+    internal.point_data["Q"] = np.sum((internal.points - .5) ** 2, axis=1)
+    boundary = pv.Sphere(); boundary.point_data["Q"] = np.zeros(boundary.n_points)
+    blocks = pv.MultiBlock(); blocks["boundaryPatch"] = boundary; blocks["internalMesh"] = internal
+    assert select_dataset(blocks) is internal
+    assert select_dataset(blocks, "boundaryPatch") is boundary
+    path = tmp_path / "case.vtm"; blocks.save(path)
+    config = {"input": {"path": str(path), "block": "internalMesh"}, "processing": {"q_field": "Q", "location": "point", "iso": .2},
+              "output": {"surface": str(tmp_path / "surface.vtp")}}
+    assert extract(config).is_file()
+    assert len(vtk_dependency_signature(path)["dependencies"]) >= 2
+
+
+def test_q_extract_resolves_standard_time_index(tmp_path):
+    mesh = pv.ImageData(dimensions=(5, 5, 5), spacing=(.25, .25, .25))
+    mesh.point_data["Q"] = np.sum((mesh.points - .5) ** 2, axis=1)
+    source = tmp_path / "step.vti"; mesh.save(source)
+    index = tmp_path / "times.json"; Data3D.save_time_index(index, [{"time": 2.5, "path": "step.vti"}])
+    config = {"input": {"time_index": str(index)}, "processing": {"q_field": "Q", "location": "point", "iso": .2},
+              "output": {"surface": str(tmp_path / "surface_{time:.1f}.vtp")}}
+    output = extract(config, time=2.5)
+    assert output.name == "surface_2.5.vtp" and output.is_file()
+
+
 def test_q_config_can_use_existing_surface(tmp_path):
     sample = tmp_path / "surface.vtp"
     pv.Sphere().save(sample)
@@ -79,13 +114,39 @@ def test_q_config_can_use_existing_surface(tmp_path):
 
 def test_batch_dry_run_does_not_spawn_or_write(tmp_path, capsys):
     config_path = tmp_path / "q.yml"
-    config = {"times": [1.0, 2.0], "input": {"surface": "sample.vtp"}, "batch": {"manifest": "manifest.json"}}
+    config = {"times": [1.0, 2.0], "input": {"surface": "sample.vtp"}, "output": {"image": "q_{time}.png"}, "batch": {"manifest": "manifest.json"}}
     assert batch(config_path, config, tmp_path, resume=True, dry_run=True) == []
     assert "sciplot.cli q render" in capsys.readouterr().out
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_batch_rejects_overwriting_time_outputs(tmp_path):
+    config = {"times": [1.0, 2.0], "input": {"surface": "sample.vtp"}, "output": {"image": "same.png"}}
+    with pytest.raises(ValueError, match="not unique"):
+        batch(tmp_path / "q.yml", config, tmp_path, resume=True, dry_run=True)
 
 
 def test_3d_time_index_keeps_explicit_sorted_times(tmp_path):
     path = tmp_path / "times.json"
     Data3D.save_time_index(path, [{"time": 2, "path": "two.vtu"}, {"time": 1, "path": "one.vtu"}])
     assert [step["time"] for step in Data3D.load_time_index(path)["steps"]] == [1.0, 2.0]
+
+
+def test_camera_json_round_trip(tmp_path):
+    camera = SimpleNamespace(position=(1, 2, 3), focal_point=(0, 0, 0), up=(0, 0, 1), parallel_projection=True,
+                             parallel_scale=3.5, view_angle=30.0)
+    plotter = SimpleNamespace(camera=camera)
+    target = save_camera(plotter, tmp_path / "camera.json")
+    loaded = camera_from_file(target)
+    recipient = SimpleNamespace(camera=SimpleNamespace(), camera_position=None, reset_camera_clipping_range=lambda: None)
+    apply_camera(recipient, loaded)
+    assert recipient.camera_position == [[1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+
+
+def test_render_fingerprint_changes_for_scene_or_camera(tmp_path):
+    surface = tmp_path / "surface.vtp"; pv.Sphere().save(surface)
+    camera = tmp_path / "camera.json"; camera.write_text(json.dumps({"position": [1, 1, 1]}))
+    initial = render_fingerprint(surface, camera, {"colormap": "viridis"}, 1.0)
+    assert initial != render_fingerprint(surface, camera, {"colormap": "coolwarm"}, 1.0)
+    camera.write_text(json.dumps({"position": [2, 1, 1]}))
+    assert initial != render_fingerprint(surface, camera, {"colormap": "viridis"}, 1.0)

@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from .data import Data3D
-from .provenance import FORMAT_VERSION, file_signature, fingerprint, read_record, write_record
+from .provenance import FORMAT_VERSION, file_signature, fingerprint, read_record, vtk_dependency_signature, write_record
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -34,14 +34,68 @@ def _path(value: str | Path, base: Path, time: float | None = None) -> Path:
     return result if result.is_absolute() else base / result
 
 
-def _first_dataset(mesh):
+def _iter_datasets(mesh, prefix: str = ""):
+    import pyvista as pv
+    if not isinstance(mesh, pv.MultiBlock):
+        yield prefix or "root", mesh
+        return
+    for index, block in enumerate(mesh):
+        if block is None:
+            continue
+        name = mesh.get_block_name(index) or str(index)
+        path = f"{prefix}/{name}" if prefix else name
+        yield from _iter_datasets(block, path)
+
+
+def select_dataset(mesh, selector: str | int | None = None):
+    """Select a named leaf from MultiBlock rather than guessing its first block.
+
+    With no selector, only a unique block named ``internalMesh`` is accepted.
+    A selector can be a leaf name (``internalMesh``), full path
+    (``regionA/internalMesh``), or numeric top-level block index.
+    """
     import pyvista as pv
     if not isinstance(mesh, pv.MultiBlock):
         return mesh
-    for block in mesh.recursive_iterator(skip_none=True):
-        if isinstance(block, pv.DataSet):
-            return block
-    raise ValueError("Input MultiBlock contains no dataset")
+    choices = list(_iter_datasets(mesh))
+    if isinstance(selector, int):
+        if selector < 0 or selector >= mesh.n_blocks or not isinstance(mesh[selector], pv.DataSet):
+            raise KeyError(f"Invalid top-level DataSet block index {selector}")
+        return mesh[selector]
+    selector = "internalMesh" if selector is None else str(selector)
+    matches = [(name, value) for name, value in choices if name == selector or name.rsplit("/", 1)[-1] == selector]
+    if len(matches) == 1:
+        return matches[0][1]
+    available = [name for name, _ in choices]
+    if not matches:
+        raise KeyError(f"MultiBlock selector {selector!r} not found; available DataSet blocks: {available}")
+    raise KeyError(f"MultiBlock selector {selector!r} is ambiguous; use one of: {[name for name, _ in matches]}")
+
+
+def _time_index_source(config: dict[str, Any], base: Path, time: float | None) -> tuple[Path, float | None]:
+    input_cfg = config.get("input", {})
+    index_value = input_cfg.get("time_index")
+    path_value = input_cfg.get("path")
+    if index_value is None and path_value and str(path_value).lower().endswith(".json"):
+        index_value = path_value
+    if not index_value:
+        if not path_value:
+            raise ValueError("q extract requires input.path, input.time_index, or input.surface")
+        return _path(path_value, base, time), time
+    index_path = _path(index_value, base)
+    index = Data3D.load_time_index(index_path)
+    requested = time if time is not None else input_cfg.get("time")
+    if requested is None:
+        raise ValueError("Q extraction from a time index requires --time or input.time")
+    tolerance = float(input_cfg.get("time_tolerance", 1e-9))
+    matches = [step for step in index["steps"] if abs(float(step["time"]) - float(requested)) <= tolerance]
+    if len(matches) != 1:
+        available = [step["time"] for step in index["steps"]]
+        raise KeyError(f"Time {requested} not uniquely present in {index_path}; available: {available}")
+    source = Path(matches[0]["path"])
+    if not source.is_absolute():
+        source = index_path.parent / source
+    return source, float(matches[0]["time"])
 
 
 def _array_location(mesh, name: str, requested: str | None = None) -> str:
@@ -64,31 +118,35 @@ def surface_path(config: dict[str, Any], base: Path, time: float | None = None) 
     output = config.get("output", {}).get("surface")
     if output:
         return _path(output, base, time)
-    input_path = config.get("input", {}).get("path")
-    if not input_path:
+    input_cfg = config.get("input", {})
+    if not input_cfg.get("path") and not input_cfg.get("time_index"):
         raise ValueError("q extract requires input.path or input.surface")
     stamp = "" if time is None else f"_t{time:.6f}"
     return _path(f"q_surface{stamp}.vtp", base)
 
 
 def processing_fingerprint(config: dict[str, Any], source: Path, time: float | None) -> str:
-    return fingerprint({"format_version": FORMAT_VERSION, "source": file_signature(source), "time": time,
+    signature = vtk_dependency_signature(source) if source.suffix.lower() == ".vtm" else file_signature(source)
+    return fingerprint({"format_version": FORMAT_VERSION, "source": signature, "time": time,
                         "processing": config.get("processing", {}), "input": config.get("input", {})})
 
 
 def extract(config: dict[str, Any], base: str | Path = ".", time: float | None = None, force: bool = False) -> Path:
     """Extract a Q isosurface and cache it only for an identical physical job."""
-    base = Path(base)
+    base = Path(base); time = time if time is not None else config.get("time")
     ready = surface_input(config, base, time)
     if ready and ready.suffix.lower() == ".vtp" and not config.get("input", {}).get("path"):
         return ready
-    source = _path(config["input"]["path"], base, time)
+    source, resolved_time = _time_index_source(config, base, time)
+    time = resolved_time
     target = surface_path(config, base, time)
     key = processing_fingerprint(config, source, time)
     record = read_record(target)
     if not force and target.is_file() and record and record.get("fingerprint") == key:
         return target
-    mesh = _first_dataset(Data3D.from_file(source, time=time).mesh).copy()
+    input_cfg = config.get("input", {})
+    selector = input_cfg.get("block", input_cfg.get("region", config["processing"].get("block")))
+    mesh = select_dataset(Data3D.from_file(source, time=time).mesh, selector).copy()
     proc = config["processing"]
     q_name = proc.get("q_field", "Q")
     location = _array_location(mesh, q_name, proc.get("location")) if q_name in mesh.array_names else None
@@ -116,7 +174,7 @@ def extract(config: dict[str, Any], base: str | Path = ".", time: float | None =
     target.parent.mkdir(parents=True, exist_ok=True)
     surface.save(target, binary=True)
     write_record(target, {"kind": "q-surface", "format_version": FORMAT_VERSION, "fingerprint": key,
-                          "source": file_signature(source), "time": time, "q_field": q_name,
+                          "source": vtk_dependency_signature(source) if source.suffix.lower() == ".vtm" else file_signature(source), "time": time, "q_field": q_name,
                           "iso": iso, "algorithm": algorithm, "field_location": location})
     return target
 
@@ -168,15 +226,20 @@ def add_scene(plotter, surface, scene: dict[str, Any], time: float | None = None
                          font_size=int(scene.get("font_size", 14)), color=scene.get("text_color", "black"))
 
 
+def render_fingerprint(surface: Path, camera_path: Path, scene: dict[str, Any], time: float | None) -> str:
+    """Fingerprint presentation inputs independently from Q extraction inputs."""
+    return fingerprint({"surface": file_signature(surface), "camera": file_signature(camera_path), "scene": scene,
+                        "time": time, "image_size": scene.get("image_size", [1280, 720])})
+
+
 def render(config: dict[str, Any], base: str | Path = ".", time: float | None = None, resume: bool = False) -> Path:
     from .plotting import Plot3D
-    base = Path(base)
+    base = Path(base); time = time if time is not None else config.get("time")
     surface = surface_input(config, base, time) or extract(config, base, time)
     camera_path = _path(config.get("camera", config.get("scene", {}).get("camera", "camera.json")), base, time)
     output = _path(config.get("output", {}).get("image", "q.png"), base, time)
     scene = config.get("scene", {})
-    key = fingerprint({"surface": file_signature(surface), "camera": file_signature(camera_path), "scene": scene,
-                       "time": time, "image_size": scene.get("image_size", [1280, 720])})
+    key = render_fingerprint(surface, camera_path, scene, time)
     if resume and output.is_file() and (read_record(output) or {}).get("fingerprint") == key:
         return output
     if not Plot3D.offscreen_available():
@@ -195,13 +258,14 @@ def render(config: dict[str, Any], base: str | Path = ".", time: float | None = 
     return output
 
 
-def camera_editor(config: dict[str, Any], base: str | Path = ".") -> None:
+def camera_editor(config: dict[str, Any], base: str | Path = ".", time: float | None = None) -> None:
     """Open a desktop editor; press P to persist the full camera state."""
     import pyvista as pv
-    base = Path(base); surface = surface_input(config, base) or extract(config, base)
-    target = _path(config.get("camera", "camera.json"), base)
+    base = Path(base); time = time if time is not None else config.get("time")
+    surface = surface_input(config, base, time) or extract(config, base, time)
+    target = _path(config.get("camera", "camera.json"), base, time)
     plotter = pv.Plotter(off_screen=False, window_size=tuple(config.get("scene", {}).get("image_size", [1280, 720])))
-    add_scene(plotter, pv.read(surface), config.get("scene", {}), config.get("time"))
+    add_scene(plotter, pv.read(surface), config.get("scene", {}), time)
     if target.is_file(): apply_camera(plotter, camera_from_file(target))
     plotter.add_key_event("p", lambda: save_camera(plotter, target))
     print("Mouse: rotate/pan/zoom; press P to save camera.")
@@ -212,6 +276,16 @@ def batch(config_path: Path, config: dict[str, Any], base: Path, resume: bool, d
     times = config.get("times", config.get("processing", {}).get("times", []))
     if not times:
         raise ValueError("q batch needs a `times: [..]` list (or processing.times)")
+    numeric_times = [float(value) for value in times]
+    image_paths = [_path(config.get("output", {}).get("image", "q.png"), base, value) for value in numeric_times]
+    duplicates = {str(path) for path in image_paths if image_paths.count(path) > 1}
+    if duplicates:
+        raise ValueError(f"Q batch image outputs are not unique: {sorted(duplicates)}; include '{{time}}' in output.image")
+    if not config.get("input", {}).get("surface"):
+        surface_paths = [surface_path(config, base, value) for value in numeric_times]
+        duplicates = {str(path) for path in surface_paths if surface_paths.count(path) > 1}
+        if duplicates:
+            raise ValueError(f"Q batch surface outputs are not unique: {sorted(duplicates)}; include '{{time}}' in output.surface")
     failures = []
     retries = int(config.get("batch", {}).get("retries", 1)); timeout = float(config.get("batch", {}).get("timeout", 900))
     log_dir = _path(config.get("batch", {}).get("log_dir", "q_logs"), base)
@@ -226,7 +300,7 @@ def batch(config_path: Path, config: dict[str, Any], base: Path, resume: bool, d
     if not dry_run:
         log_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    for time in map(float, times):
+    for time in numeric_times:
         command = [sys.executable, "-m", "sciplot.cli", "q", "render", "--config", str(config_path), "--time", str(time)]
         if resume: command.append("--resume")
         task_id = f"{time:.12g}"

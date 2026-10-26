@@ -14,11 +14,32 @@ class Plot1D:
         self.fig, self.ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     def line(self, data: Data1D, field: str, label: str | None = None,
-             x_transform=None, **kwargs):
+             x_transform=None, y_transform=None, **kwargs):
         if field not in data.fields:
             raise KeyError(f"{field!r} is not in {list(data.fields)}")
         x = data.x if x_transform is None else np.asarray(x_transform(data.x))
-        return self.ax.plot(x, data.fields[field], label=label, **kwargs)[0]
+        y = data.fields[field] if y_transform is None else np.asarray(y_transform(data.fields[field]))
+        return self.ax.plot(x, y, label=label, **kwargs)[0]
+
+    def scatter(self, data: Data1D, field: str, label: str | None = None,
+                x_transform=None, y_transform=None, **kwargs):
+        x = data.x if x_transform is None else np.asarray(x_transform(data.x))
+        y = data.fields[field] if y_transform is None else np.asarray(y_transform(data.fields[field]))
+        return self.ax.scatter(x, y, label=label, **kwargs)
+
+    def errorbar(self, data: Data1D, field: str, yerr, label: str | None = None,
+                 x_transform=None, y_transform=None, **kwargs):
+        x = data.x if x_transform is None else np.asarray(x_transform(data.x))
+        y = data.fields[field] if y_transform is None else np.asarray(y_transform(data.fields[field]))
+        return self.ax.errorbar(x, y, yerr=yerr, label=label, **kwargs)
+
+    def band(self, data: Data1D, lower: str, upper: str, label: str | None = None,
+             x_transform=None, y_transform=None, **kwargs):
+        if lower not in data.fields or upper not in data.fields:
+            raise KeyError(f"Band fields must be present: {lower!r}, {upper!r}")
+        x = data.x if x_transform is None else np.asarray(x_transform(data.x))
+        convert = (lambda values: values) if y_transform is None else y_transform
+        return self.ax.fill_between(x, convert(data.fields[lower]), convert(data.fields[upper]), label=label, **kwargs)
 
     def lines(self, datasets, field: str, labels=None, **kwargs):
         labels = labels or [None] * len(datasets)

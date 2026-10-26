@@ -1,0 +1,38 @@
+# Fully self-contained demo. The data are intentionally synthetic.
+datasets:
+  - path: reference.csv
+    x: x
+    y: Cd
+    label: reference ± uncertainty
+    kind: band
+    lower: lower
+    upper: upper
+    style: {color: C0, alpha: 0.22}
+  - path: reference.csv
+    x: x
+    y: Cd
+    label: reference
+    style: {color: C0, linewidth: 1.8}
+  - path: medium.csv
+    x: x
+    y: Cd
+    label: medium grid
+    style: {color: C1, linestyle: --, linewidth: 1.5}
+  - path: coarse.csv
+    x: x
+    y: Cd
+    label: coarse grid
+    kind: scatter
+    style: {color: C2, marker: s, s: 20}
+plot:
+  style: paper
+  outputs:
+    - ../../../output/demos/curve_comparison.pdf
+    - ../../../output/demos/curve_comparison.svg
+  figure: {size: [6.6, 3.6], dpi: 180}
+  axes:
+    xlabel: "$t^*$"
+    ylabel: "$C_d$"
+    legend: true
+    legend_loc: best
+    grid: {alpha: 0.25}
