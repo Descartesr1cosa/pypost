@@ -1,0 +1,18 @@
+{
+  "format": "pypost-1d-layout",
+  "version": 1,
+  "figure": {},
+  "panels": {
+    "drag": {
+      "legend": {
+        "bbox": [0.56, 0.96, 0.34, 0.08],
+        "loc": "upper left"
+      }
+    }
+  },
+  "annotations": {
+    "drag_formula": {"panel": "drag", "coords": "axes", "xy": [0.10, 0.84]},
+    "separation_note": {"panel": "drag", "coords": "axes", "xy": [0.56, 0.38]},
+    "figure_note": {"panel": "lift", "coords": "figure", "xy": [0.92, 0.03]}
+  }
+}

@@ -1,0 +1,40 @@
+# Synthetic CFD-like coefficients. Mathtext is used; no external TeX install is needed.
+plot:
+  style: paper
+  layout: {mode: auto, overrides: layout.json}
+  outputs: [formula_annotations.pdf, formula_annotations.svg, formula_annotations.png]
+  figure: {size: [178, 66], size_unit: mm, nrows: 1, ncols: 2, dpi: 200, tight: false}
+panels:
+  - id: drag
+    panel_label: A
+    datasets:
+      - {path: data.csv, x: x, y: Cd, label: '$C_D$', style: {color: '#0072b2', marker: o}}
+    axes: {xlabel: '$x/L$', ylabel: '$C_D$', legend: {loc: upper right, frameon: false}, grid: {major: {alpha: 0.25}}}
+  - id: lift
+    panel_label: B
+    datasets:
+      - {path: data.csv, x: x, y: Cl, label: '$C_L$', style: {color: '#d55e00', marker: s}}
+    axes: {xlabel: '$x/L$', ylabel: '$C_L$', legend: {loc: lower right, frameon: false}, grid: {major: {alpha: 0.25}}}
+annotations:
+  - id: drag_formula
+    panel: drag
+    text: '$C_D = \frac{2F_D}{\rho U_\infty^2 A}$'
+    coords: axes
+    xy: [0.08, 0.88]
+    fontsize: 11
+    color: black
+  - id: separation_note
+    panel: drag
+    text: separation trend
+    coords: axes
+    xy: [0.58, 0.42]
+    fontsize: 8
+    arrow: {xy: [1.0, 0.58], coords: data, style: {arrowstyle: '->', color: black}}
+  - id: figure_note
+    panel: lift
+    text: synthetic data
+    coords: figure
+    xy: [0.92, 0.03]
+    fontsize: 7
+    ha: right
+    color: '#555555'

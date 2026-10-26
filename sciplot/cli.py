@@ -4,13 +4,23 @@ import argparse
 from copy import deepcopy
 from pathlib import Path
 import shutil
-from .curve import compare
 from .inspect import inspect_path
-from .q import batch, camera_editor, extract, load_config, render
 from .workflow import load_data, read_yaml, save_data
 
 
 def _config(value: str): return Path(value).resolve()
+
+
+def _compare(*args, **kwargs):
+    """Lazy import keeps `pypost edit` free to select a GUI backend first."""
+    from .curve import compare
+    return compare(*args, **kwargs)
+
+
+def _q_workflow():
+    """Delay PyVista/plot imports until a Q command actually needs them."""
+    from .q import batch, camera_editor, extract, load_config, render
+    return batch, camera_editor, extract, load_config, render
 
 
 def _project_root() -> Path:
@@ -22,6 +32,8 @@ def _demos() -> dict[str, tuple[str, Path]]:
     root = _project_root()
     return {
         "curve-comparison": ("Self-contained synthetic three-curve comparison", root / "demos" / "curve_demo" / "curve_comparison.yml"),
+        "curve-layout": ("Editable automatic/manual layout demonstration", root / "demos" / "curve_layout_demo" / "layout.yml"),
+        "curve-annotations": ("Mathtext, text, arrow, and multi-panel annotation demonstration", root / "demos" / "curve_annotation_demo" / "annotations.yml"),
         "curve-gallery": ("Synthetic 2x2 scientific plotting feature gallery", root / "demos" / "curve_gallery" / "gallery.yml"),
         "cfd-curve-workflow": ("Raw OpenFOAM-style curve conversion and paper plot", root / "demos" / "cfd_curve_demo" / "workflow.yml"),
         "q-surface": ("Supplied Q surface with reproducible camera and scene", root / "demos" / "q_demo" / "q_surface.yml"),
@@ -44,7 +56,7 @@ def _doctor() -> str:
 
 def _copy_demo_project(name: str, destination: str | Path) -> Path:
     """Copy an editable curve demo without ever modifying package resources."""
-    if name not in {"curve-comparison", "curve-gallery", "cfd-curve-workflow"}:
+    if name not in {"curve-comparison", "curve-layout", "curve-annotations", "curve-gallery", "cfd-curve-workflow"}:
         raise ValueError(f"Demo {name!r} cannot be initialized as an editable 1-D project.")
     source = _demos()[name][1].parent
     target = Path(destination).expanduser()
@@ -101,9 +113,16 @@ def main(argv=None) -> int:
     demo_run = demo_p.add_parser("run", help="Run a bundled demo using the normal core workflow")
     demo_run.add_argument("name", choices=tuple(_demos()))
     demo_init = demo_p.add_parser("init", help="Copy an editable 1-D demo project into a new directory")
-    demo_init.add_argument("name", choices=("curve-comparison", "curve-gallery", "cfd-curve-workflow"))
+    demo_init.add_argument("name", choices=("curve-comparison", "curve-layout", "curve-annotations", "curve-gallery", "cfd-curve-workflow"))
     demo_init.add_argument("--dest", required=True, help="New writable project directory (must not already exist)")
     commands.add_parser("doctor", help="Report versions, demo assets, and rendering prerequisites")
+    plot_p = commands.add_parser("plot", help="Render a 1-D YAML figure without opening a GUI")
+    plot_p.add_argument("config", help="1-D curve YAML file")
+    plot_p.add_argument("--output", help="Override output path without modifying YAML")
+    plot_p.add_argument("--show", action="store_true", help="Preview interactively when DISPLAY is available")
+    edit_p = commands.add_parser("edit", help="Interactively adjust a 1-D figure layout and save JSON")
+    edit_p.add_argument("config", help="1-D curve YAML file")
+    edit_p.add_argument("--layout", help="JSON path to save instead of plot.layout.overrides")
     curve_p = commands.add_parser("curve", help="One-dimensional curve workflows").add_subparsers(dest="curve_command", required=True)
     curve_compare = curve_p.add_parser("compare", help="Compare multiple standard CSV curves")
     curve_compare.add_argument("--config", required=True)
@@ -127,16 +146,17 @@ def main(argv=None) -> int:
         if args.demo_command == "init":
             target = _copy_demo_project(args.name, args.dest)
             config_name = "plot.yml" if args.name == "curve-comparison" else _demos()[args.name][1].name
-            print(f"Editable demo created: {target}\nNext: pypost curve compare --config {target / config_name}")
+            print(f"Editable demo created: {target}\nNext: pypost plot {target / config_name}")
             return 0
         description, config_path = demos[args.name]
         if not config_path.is_file(): raise FileNotFoundError(f"Demo configuration missing: {config_path}")
         output_dir = Path.cwd() / "pypost-demo-output"
-        if args.name in {"curve-comparison", "curve-gallery"}:
+        if args.name in {"curve-comparison", "curve-layout", "curve-annotations", "curve-gallery"}:
             config = deepcopy(read_yaml(config_path))
-            stem = "curve_comparison" if args.name == "curve-comparison" else "curve_gallery"
+            stem = {"curve-comparison": "curve_comparison", "curve-layout": "curve_layout",
+                    "curve-annotations": "curve_annotations", "curve-gallery": "curve_gallery"}[args.name]
             config.setdefault("plot", {})["outputs"] = [str(output_dir / f"{stem}.pdf"), str(output_dir / f"{stem}.svg"), str(output_dir / f"{stem}.png")]
-            print(compare(config, config_path.parent)); return 0
+            print(_compare(config, config_path.parent)); return 0
         if args.name == "cfd-curve-workflow":
             # Stage package-owned files first, then execute their unmodified,
             # standalone YAML files. This is the same workflow a user gets
@@ -146,7 +166,8 @@ def main(argv=None) -> int:
             workflow = read_yaml(project / config_path.name)
             for conversion in workflow["convert_configs"]:
                 _convert_from_config(project / conversion)
-            print(compare(read_yaml(project / workflow["plot_config"]), project)); return 0
+            print(_compare(read_yaml(project / workflow["plot_config"]), project)); return 0
+        _, _, _, load_config, render = _q_workflow()
         config = load_config(config_path)
         config.setdefault("output", {})["image"] = str(output_dir / "q_surface.png")
         print(render(config, config_path.parent, config.get("time"))); return 0
@@ -178,7 +199,23 @@ def main(argv=None) -> int:
         _convert_from_config(config_path)
         return 0
     if args.command == "curve":
-        config_path = _config(args.config); print(compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
+        config_path = _config(args.config); print(_compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
+    if args.command == "plot":
+        config_path = _config(args.config); print(_compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
+    if args.command == "edit":
+        # This intentionally occurs before importing curve.py/pyplot.
+        from .plotting.figure_editor import ensure_interactive_backend
+        ensure_interactive_backend()
+        from .curve import build_figure
+        from .plotting.figure_editor import open_editor
+        config_path = _config(args.config); config = read_yaml(config_path)
+        renderer, panels, annotations, plot_cfg, defaults = build_figure(config, config_path.parent)
+        layout = args.layout or plot_cfg.get("layout", {}).get("overrides")
+        target = Path(layout) if layout else config_path.with_suffix(".layout.json")
+        if not target.is_absolute(): target = config_path.parent / target
+        open_editor(renderer.fig, panels, annotations, target, defaults)
+        return 0
+    batch, camera_editor, extract, load_config, render = _q_workflow()
     config_path = _config(args.config); config = load_config(config_path); base = config_path.parent
     if args.q_command == "extract": print(extract(config, base, args.time, args.force)); return 0
     if args.q_command == "camera": camera_editor(config, base, args.time); return 0

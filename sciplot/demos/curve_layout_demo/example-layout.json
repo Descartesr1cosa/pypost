@@ -1,0 +1,18 @@
+{
+  "format": "pypost-1d-layout",
+  "version": 1,
+  "figure": {
+    "margins": {
+      "left": 0.2,
+      "right": 0.95,
+      "bottom": 0.22,
+      "top": 0.93
+    }
+  },
+  "panels": {
+    "panel-0": {
+      "xlabel": [0.5, -0.2]
+    }
+  },
+  "annotations": {}
+}

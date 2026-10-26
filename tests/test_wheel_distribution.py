@@ -21,6 +21,9 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     assert any(name.endswith("sciplot/demos/curve_demo/curve_comparison.yml") for name in names)
     assert any(name.endswith("sciplot/demos/curve_gallery/gallery.yml") for name in names)
     assert any(name.endswith("sciplot/demos/curve_gallery/panels/loglog.yml") for name in names)
+    assert any(name.endswith("sciplot/demos/curve_layout_demo/layout.yml") for name in names)
+    assert any(name.endswith("sciplot/demos/curve_annotation_demo/annotations.yml") for name in names)
+    assert any(name.endswith("sciplot/demos/curve_annotation_demo/preview.png") for name in names)
     assert any(name.endswith("sciplot/demos/cfd_curve_demo/workflow.yml") for name in names)
     assert any(name.endswith("sciplot/demos/q_demo/Q_sample.vtp") for name in names)
     assert any(name.endswith("entry_points.txt") for name in names)
@@ -35,8 +38,12 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     assert (tmp_path / "pypost-demo-output" / "curve_comparison.pdf").is_file()
     assert (tmp_path / "pypost-demo-output" / "curve_comparison.svg").is_file()
     subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "curve-gallery"], cwd=tmp_path, env=env, check=True)
+    subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "curve-layout"], cwd=tmp_path, env=env, check=True)
+    subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "curve-annotations"], cwd=tmp_path, env=env, check=True)
     subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "cfd-curve-workflow"], cwd=tmp_path, env=env, check=True)
     assert (tmp_path / "pypost-demo-output" / "curve_gallery.png").is_file()
+    assert (tmp_path / "pypost-demo-output" / "curve_layout.png").is_file()
+    assert (tmp_path / "pypost-demo-output" / "curve_annotations.svg").is_file()
     assert (tmp_path / "pypost-demo-output" / "cfd-curve-workflow" / "cfd_coefficients.svg").is_file()
 
     # A normal wheel user starts in an arbitrary writable directory.  Exercise
@@ -51,7 +58,7 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     config["plot"]["axes"].update({"xlim": [0, 1], "ylim": [0.4, 0.8], "legend": {"loc": "upper right", "frameon": False}})
     config["plot"]["outputs"] = ["edited.pdf", "edited.svg", "edited.png"]
     (project / "plot.yml").write_text(yaml.safe_dump(config, sort_keys=False))
-    subprocess.run([sys.executable, "-m", "sciplot.cli", "curve", "compare", "--config", str(project / "plot.yml")], cwd=tmp_path, env=env, check=True)
+    subprocess.run([sys.executable, "-m", "sciplot.cli", "plot", str(project / "plot.yml")], cwd=tmp_path, env=env, check=True)
     assert all((project / f"edited.{suffix}").is_file() for suffix in ("pdf", "svg", "png"))
 
     cfd_project = tmp_path / "cfd-plot"

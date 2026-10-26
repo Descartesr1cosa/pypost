@@ -26,6 +26,9 @@ datasets:
     style: {color: C2, marker: s, s: 20}
 plot:
   style: paper
+  # Absent until `pypost edit plot.yml` saves it; then normal `pypost plot`
+  # automatically reuses the same layout.
+  layout: {mode: auto, overrides: layout.json}
   outputs:
     - curve_comparison.pdf
     - curve_comparison.svg

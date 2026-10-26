@@ -109,7 +109,77 @@ The CLI override has priority for that invocation only and never rewrites the
 configuration. On a desktop you can preview with `--show`; on a headless
 server, omit `--show` and export files normally.
 
-### 4. Separate raw CFD conversion from plotting
+### 4. Render simply, then edit only the layout
+
+For ordinary 1-D YAML, use the short command below. It uses exactly the same
+renderer as the compatible `pypost curve compare --config plot.yml` command:
+
+```bash
+pypost plot my-plot/plot.yml
+pypost edit my-plot/plot.yml
+```
+
+`plot` is non-interactive and works on headless systems. `edit` requires a
+desktop `DISPLAY`; it opens the final figure plus a small margin-control window.
+Drag an x/y label, title, legend, text, formula, or arrow annotation. Use the
+native toolbar to pan/zoom, use margin sliders for manual layout, press
+**Ctrl+S** to save, and press **R** to restore the YAML defaults.
+
+Add this to YAML so the saved visual state is reused automatically:
+
+```yaml
+plot:
+  layout:
+    mode: auto                 # default; keeps labels within the canvas
+    overrides: layout.json     # optional until the editor first saves it
+```
+
+`mode: manual` enables `margins: {left: 0.18, right: 0.96, bottom: 0.18,
+top: 0.94}`. Do not mix manual margins with `mode: auto`. `layout.json` stores
+only figure/panel bounds, label/title/legend positions, annotation positions,
+and optional axis limits; it never stores CSV data or Python objects.
+
+Try the focused layout example:
+
+```bash
+pypost demo init curve-layout --dest layout-project
+pypost plot layout-project/layout.yml
+pypost edit layout-project/layout.yml
+```
+
+### 5. Add ordinary text, Mathtext formulas, and arrows
+
+Annotations can be global or placed in a particular multi-panel ID:
+
+```yaml
+annotations:
+  - id: drag_formula
+    panel: drag
+    text: '$C_D = \frac{2F_D}{\rho U_\infty^2 A}$'
+    coords: axes
+    xy: [0.55, 0.80]
+    fontsize: 11
+    color: black
+  - id: minimum_note
+    panel: drag
+    text: minimum drag
+    coords: axes
+    xy: [0.25, 0.20]
+    arrow: {xy: [1.0, 0.52], coords: data, style: {arrowstyle: '->'}}
+```
+
+`coords: data` uses physical plotted values; `coords: axes` is a fraction of
+the selected panel (`[0, 0]` bottom-left and `[1, 1]` top-right); `coords:
+figure` is a fraction of the whole canvas. Mathtext works by default without a
+system LaTeX installation. Annotation IDs must be unique because the editor
+uses them to restore saved positions.
+
+```bash
+pypost demo init curve-annotations --dest annotated-figure
+pypost plot annotated-figure/annotations.yml
+```
+
+### 6. Separate raw CFD conversion from plotting
 
 The CFD demo converts raw tables once and then plots standardized CSV files:
 
@@ -126,7 +196,7 @@ The conversion commands create `standardized/case_a.csv` and
 only those normalized files and writes `cfd_coefficients.pdf` and `.svg`.
 Change `compare.yml` and rerun only the final command to restyle the plot.
 
-### 5. Learn one feature at a time
+### 7. Learn one feature at a time
 
 The Feature Gallery contains one 2×2 overview and four focused configurations:
 
@@ -144,7 +214,7 @@ zero with an inset. Start from the closest example and replace `path`, `x`,
 and `y`. See the [parameter quick reference](quick-reference.md) for all
 common controls.
 
-### 6. Common messages and fixes
+### 8. Common messages and fixes
 
 | Message | Cause and fix |
 | --- | --- |
@@ -154,6 +224,7 @@ common controls.
 | `Cannot use a log ... axis` | Log axes require strictly positive values. Use `symlog` or inspect transformed values after scale/offset. |
 | `Cannot save figure` | Create the output directory or choose a writable `plot.outputs` path. |
 | `Interactive preview requires a graphical DISPLAY` | Remove `--show` on a headless server; normal export still works. |
+| ``pypost edit` requires a graphical DISPLAY` | Start the editor from a desktop session with Tk or Qt available; use `pypost plot` on a server. |
 
 Once you can replace CSV files, edit YAML, and export PDF/SVG/PNG reliably,
 there is no need to learn the library internals.
@@ -269,7 +340,74 @@ pypost curve compare --config my-plot/plot.yml --show
 
 无图形显示环境下请去掉 `--show`，PDF/SVG/PNG 导出仍然正常。
 
-## 4. 从原始 CFD 表到可重复作图
+## 4. 用简化命令出图，再交互调整排版
+
+对于普通一维 YAML，优先使用短命令；它与兼容接口
+`pypost curve compare --config plot.yml` 复用同一套渲染逻辑：
+
+```bash
+pypost plot my-plot/plot.yml
+pypost edit my-plot/plot.yml
+```
+
+`plot` 无界面渲染，适合服务器；`edit` 需要有 `DISPLAY` 的桌面环境。编辑器会显示
+最终图和一个小的边距控制窗口：可拖动 x/y label、title、legend、文字、公式和箭头；
+可用原生工具栏缩放/平移；可用滑块调整边距；按 **Ctrl+S** 保存，按 **R** 恢复 YAML
+默认排版。
+
+在 YAML 中加入以下配置，之后普通 `pypost plot` 会自动重用保存的视觉状态：
+
+```yaml
+plot:
+  layout:
+    mode: auto                 # 默认，自动避免 label 越出画布
+    overrides: layout.json     # 编辑器首次保存前不存在也没有问题
+```
+
+`mode: manual` 可配合 `margins: {left: 0.18, right: 0.96, bottom: 0.18,
+top: 0.94}` 使用；不要把手动边距与 `mode: auto` 混用。`layout.json` 只保存画布/
+panel 范围、label/title/legend 位置、标注位置和可选坐标范围，不会保存 CSV 数值或
+Matplotlib Artist 对象。
+
+可运行独立的排版示例：
+
+```bash
+pypost demo init curve-layout --dest layout-project
+pypost plot layout-project/layout.yml
+pypost edit layout-project/layout.yml
+```
+
+## 5. 添加文字、Mathtext 公式和箭头
+
+标注可写在根级 `annotations`，也可用稳定 panel ID 指定多 panel 中的目标：
+
+```yaml
+annotations:
+  - id: drag_formula
+    panel: drag
+    text: '$C_D = \frac{2F_D}{\rho U_\infty^2 A}$'
+    coords: axes
+    xy: [0.55, 0.80]
+    fontsize: 11
+    color: black
+  - id: minimum_note
+    panel: drag
+    text: minimum drag
+    coords: axes
+    xy: [0.25, 0.20]
+    arrow: {xy: [1.0, 0.52], coords: data, style: {arrowstyle: '->'}}
+```
+
+`coords: data` 是物理坐标；`coords: axes` 是指定 panel 的相对坐标（`[0,0]` 为左下，
+`[1,1]` 为右上）；`coords: figure` 是整张画布相对坐标。默认 Mathtext 不依赖系统
+LaTeX。annotation ID 必须唯一，编辑器依靠它恢复保存的位置。
+
+```bash
+pypost demo init curve-annotations --dest annotated-figure
+pypost plot annotated-figure/annotations.yml
+```
+
+## 6. 从原始 CFD 表到可重复作图
 
 CFD demo 将转换和绘图拆开，因此更换颜色或坐标范围时无需再次读取原始数据：
 
@@ -285,7 +423,7 @@ pypost curve compare --config compare.yml
 最后一步只读取这些标准 CSV，输出 `cfd_coefficients.pdf` 与 `.svg`。此后只编辑
 `compare.yml` 并重跑最后一条命令即可。
 
-## 5. 学习一个功能，再用到自己的图
+## 7. 学习一个功能，再用到自己的图
 
 Feature Gallery 提供整张 2×2 图和四个小配置：
 
@@ -302,7 +440,7 @@ symlog 与局部 inset。先挑最像自己问题的一个文件，再替换 `pa
 
 完整参数请看 [参数速查表](quick-reference.md)。
 
-## 6. 常见报错与修复
+## 8. 常见报错与修复
 
 | 提示 | 原因与修复 |
 | --- | --- |
@@ -312,6 +450,7 @@ symlog 与局部 inset。先挑最像自己问题的一个文件，再替换 `pa
 | `Cannot use a log ... axis` | log 只能绘制严格正数；使用 `symlog`，或检查 scale/offset 后的数据。 |
 | `Cannot save figure` | 创建输出目录，或将 `plot.outputs` 改到有写权限的目录。 |
 | `Interactive preview requires a graphical DISPLAY` | 服务器没有桌面显示；移除 `--show`，直接导出文件。 |
+| ``pypost edit` requires a graphical DISPLAY` | 请在有桌面显示、并具备 Tk 或 Qt 的环境启动编辑器；服务器上用 `pypost plot`。 |
 
 这一流程的完成标准很简单：只要能替换 CSV、修改 YAML，并稳定导出 PDF/SVG/PNG，
 就不需要学习库内部 API。

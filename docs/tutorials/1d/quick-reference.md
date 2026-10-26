@@ -15,6 +15,10 @@
 | 图形 | `plot.style: default` | `style: paper` | `paper` 使用适合论文的局部字体和线宽；不污染全局 Matplotlib 设置。 |
 | 尺寸 | `figure.size`（6.4×4.2 in） | `size: [88, 62], size_unit: mm` | `in` 或 `mm`；`tight: false` 保持指定物理尺寸。 |
 | 输出 | `outputs`（`curve_compare.png`） | `outputs: [fig.pdf, fig.svg, fig.png]` | PDF/SVG 为矢量；PNG 用 `figure.dpi`（例如 300）。 |
+| 简化命令 | `pypost plot CONFIG` | `pypost plot plot.yml` | 与 `curve compare` 使用同一渲染逻辑；旧命令仍兼容。 |
+| 布局 | `layout.mode: auto` | `layout: {mode: auto, overrides: layout.json}` | 默认自动排版。`manual` 才可使用 `margins`，JSON 不保存数据。 |
+| label 位置 | `xlabelpad`、`ylabelpad` | `xlabel_position: [0.5, -0.15]` | position 使用 Axes 相对坐标；用 `pypost edit` 可鼠标调整。 |
+| 标注 | `annotations` | `id: note, text: '$C_D$', coords: axes, xy: [.5, .8]` | 支持普通文字/Mathtext、data/axes/figure 坐标和 `arrow`。 |
 | 坐标轴 | `xlabel`, `ylabel`, `title` | `xlabel: '$t$ [s]'` | Mathtext 可直接使用 `$...$`，不要求安装 TeX。 |
 | 范围/刻度 | `xlim`, `ylim`, `xticks`, `yticks` | `xlim: [0, 10]` | 数组或 YAML 列表。 |
 | 坐标轴 | `xscale`, `yscale`（`linear`） | `yscale: log` | 支持 `linear`、`log`、`symlog`；symlog 可配 `yscale_kwargs: {linthresh: 0.01}`。 |

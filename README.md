@@ -66,7 +66,9 @@ For a project you can edit without touching installed package files:
 
 ```bash
 pypost demo init curve-comparison --dest my-plot
-pypost curve compare --config my-plot/plot.yml
+pypost plot my-plot/plot.yml
+# Optional desktop layout editor; saves visual state to layout.json.
+pypost edit my-plot/plot.yml
 ```
 
 The Chinese-first beginner tutorial, including CSV/YAML examples, common error

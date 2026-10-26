@@ -72,10 +72,11 @@ class Plot1D:
     def set_axes(self, xlabel=None, ylabel=None, title=None, xlim=None, ylim=None,
                  xticks=None, yticks=None, equal: bool = False, legend: bool = False, legend_kwargs=None,
                  xscale="linear", yscale="linear", xscale_kwargs=None, yscale_kwargs=None,
-                 tick_params=None, minor_ticks=False, scientific=None, xformatter=None, yformatter=None):
+                 tick_params=None, minor_ticks=False, scientific=None, xformatter=None, yformatter=None,
+                 xlabelpad=None, ylabelpad=None):
         with self._context():
-            if xlabel is not None: self.ax.set_xlabel(xlabel)
-            if ylabel is not None: self.ax.set_ylabel(ylabel)
+            if xlabel is not None: self.ax.set_xlabel(xlabel, labelpad=xlabelpad)
+            if ylabel is not None: self.ax.set_ylabel(ylabel, labelpad=ylabelpad)
             if title is not None: self.ax.set_title(title)
         self.ax.set_xscale(xscale, **(xscale_kwargs or {})); self.ax.set_yscale(yscale, **(yscale_kwargs or {}))
         if xlim is not None: self.ax.set_xlim(xlim)

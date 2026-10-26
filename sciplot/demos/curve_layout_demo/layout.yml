@@ -1,0 +1,15 @@
+# Synthetic layout teaching example.  No layout.json is included initially:
+# `pypost edit layout.yml` creates it after you drag labels or change margins.
+datasets:
+  - {path: data.csv, x: time, y: Cd, label: synthetic case, style: {color: '#0072b2', marker: o, linewidth: 1.5}}
+plot:
+  style: paper
+  layout: {mode: auto, overrides: layout.json}
+  outputs: [layout_demo.pdf, layout_demo.svg, layout_demo.png]
+  figure: {size: [88, 68], size_unit: mm, dpi: 200, tight: false}
+  axes:
+    xlabel: '$t$ [s] (near the lower edge)'
+    ylabel: '$C_D$'
+    xlabelpad: 10
+    legend: {loc: upper right, frameon: false}
+    grid: {major: {alpha: 0.25}}
