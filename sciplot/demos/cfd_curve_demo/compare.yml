@@ -1,6 +1,6 @@
 datasets:
-  - {case: case_a, x: time, y: Cd, label: case A, style: {color: '#0072b2', linewidth: 1.6}}
-  - {case: case_b, x: time, y: Cd, label: case B, style: {color: '#d55e00', linestyle: --, marker: o, markersize: 3}}
+  - {path: standardized/case_a.csv, x: time, y: Cd, label: case A, style: {color: '#0072b2', linewidth: 1.6}}
+  - {path: standardized/case_b.csv, x: time, y: Cd, label: case B, style: {color: '#d55e00', linestyle: --, marker: o, markersize: 3}}
 plot:
   style: paper
   outputs: [cfd_coefficients.pdf, cfd_coefficients.svg]

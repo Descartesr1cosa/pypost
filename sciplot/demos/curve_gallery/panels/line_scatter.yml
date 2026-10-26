@@ -1,0 +1,9 @@
+# Panel A: model line + measured scatter, with a non-obscuring legend.
+datasets:
+  - {path: ../gallery.csv, x: x, y: sim, label: simulation, style: {color: '#306998', linewidth: 1.6}}
+  - {path: ../gallery.csv, x: x, y: exp, label: experiment, kind: scatter, style: {color: '#d55e00', marker: o, s: 18, zorder: 3}}
+plot:
+  style: paper
+  outputs: [panel_a_line_scatter.pdf]
+  figure: {size: [88, 62], size_unit: mm}
+  axes: {xlabel: '$x^*$', ylabel: '$C$', legend: {loc: lower right, frameon: false}, grid: {major: {alpha: 0.25}}}

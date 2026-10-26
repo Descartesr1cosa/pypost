@@ -62,6 +62,19 @@ pypost demo run curve-gallery
 pypost demo run cfd-curve-workflow
 ```
 
+For a project you can edit without touching installed package files:
+
+```bash
+pypost demo init curve-comparison --dest my-plot
+pypost curve compare --config my-plot/plot.yml
+```
+
+The Chinese-first beginner tutorial, including CSV/YAML examples, common error
+messages, a CFD conversion workflow, and a parameter cheat sheet, is in
+[`docs/tutorials/1d/`](docs/tutorials/1d/README.md). The Feature Gallery also
+has four small standalone configs under `curve_gallery/panels/` for
+line/scatter, uncertainty, log-log, and symlog/inset plots.
+
 Each command writes reproducible artifacts to `pypost-demo-output/` in the
 current working directory. The three curve demos are self-contained and their
 data are explicitly synthetic. The gallery preview is available at

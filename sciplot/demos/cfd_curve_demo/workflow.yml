@@ -1,3 +1,4 @@
 # Raw OpenFOAM-style sampled tables -> normalized CSV/JSON -> paper figure.
-raw_inputs: {case_a: case_a.xy, case_b: case_b.xy}
+# Each referenced YAML is independently runnable from this directory.
+convert_configs: [convert_case_a.yml, convert_case_b.yml]
 plot_config: compare.yml

@@ -1,0 +1,10 @@
+# Panel B: confidence band and measured error bars use matching y transforms.
+datasets:
+  - {path: ../gallery.csv, x: x, y: exp, label: uncertainty band, kind: band, lower: low, upper: high, style: {color: '#56b4e9', alpha: 0.28}}
+  - {path: ../gallery.csv, x: x, y: exp, label: measured, kind: errorbar, yerr: err, style: {color: '#d55e00', marker: o, markersize: 3, linestyle: none, capsize: 2}}
+  - {path: ../gallery.csv, x: x, y: sim, label: simulation, style: {color: '#009e73', linestyle: --}}
+plot:
+  style: paper
+  outputs: [panel_b_uncertainty.pdf]
+  figure: {size: [88, 62], size_unit: mm}
+  axes: {xlabel: '$x^*$', ylabel: '$C$', legend: {loc: lower right, frameon: false}, grid: {major: {alpha: 0.25}}}

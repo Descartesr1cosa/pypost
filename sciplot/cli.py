@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from pathlib import Path
+import shutil
 from .curve import compare
 from .inspect import inspect_path
 from .q import batch, camera_editor, extract, load_config, render
@@ -41,6 +42,53 @@ def _doctor() -> str:
     return "\n".join(lines)
 
 
+def _copy_demo_project(name: str, destination: str | Path) -> Path:
+    """Copy an editable curve demo without ever modifying package resources."""
+    if name not in {"curve-comparison", "curve-gallery", "cfd-curve-workflow"}:
+        raise ValueError(f"Demo {name!r} cannot be initialized as an editable 1-D project.")
+    source = _demos()[name][1].parent
+    target = Path(destination).expanduser()
+    if target.exists():
+        raise FileExistsError(
+            f"Destination already exists: {target}. Choose a new --dest directory; "
+            "pypost will not overwrite your work."
+        )
+    shutil.copytree(source, target)
+    # A short, memorable filename makes the beginner command in the tutorial
+    # work exactly as printed while retaining the original bundled resource.
+    if name == "curve-comparison":
+        (target / "curve_comparison.yml").rename(target / "plot.yml")
+    return target
+
+
+def _convert_from_config(config_path: Path) -> Path:
+    """Run the ordinary single-input conversion used by CLI and demos."""
+    config = read_yaml(config_path)
+    spec = dict(config["input"])
+    if "path" not in spec:
+        raise KeyError("Conversion YAML needs input.path. Example: input: {dimension: 1, path: raw.xy}")
+    input_path = Path(spec["path"])
+    spec["path"] = input_path if input_path.is_absolute() else config_path.parent / input_path
+    if not spec["path"].is_file():
+        raise FileNotFoundError(
+            f"Input data file not found: {spec['path']}. Check input.path relative to {config_path.parent}."
+        )
+    data = load_data(spec)
+    if hasattr(data, "metadata"):
+        data.metadata.update({"raw_source": str(spec["path"]), "source_format": input_path.suffix.lstrip("."),
+                              "conversion_options": config.get("options", {}), "internal_format_version": 1})
+    try:
+        output_spec = Path(config["output"]["path"])
+    except KeyError as exc:
+        raise KeyError("Conversion YAML needs output.path. Example: output: {path: standardized/case.csv}") from exc
+    target = output_spec if output_spec.is_absolute() else config_path.parent / output_spec
+    try:
+        save_data(data, target)
+    except OSError as exc:
+        raise OSError(f"Cannot write normalized data to {target}. Check output.path and directory permissions.") from exc
+    return target
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="pypost", description="Reproducible CFD post-processing workflows")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -52,6 +100,9 @@ def main(argv=None) -> int:
     demo_p.add_parser("list", help="List bundled demos")
     demo_run = demo_p.add_parser("run", help="Run a bundled demo using the normal core workflow")
     demo_run.add_argument("name", choices=tuple(_demos()))
+    demo_init = demo_p.add_parser("init", help="Copy an editable 1-D demo project into a new directory")
+    demo_init.add_argument("name", choices=("curve-comparison", "curve-gallery", "cfd-curve-workflow"))
+    demo_init.add_argument("--dest", required=True, help="New writable project directory (must not already exist)")
     commands.add_parser("doctor", help="Report versions, demo assets, and rendering prerequisites")
     curve_p = commands.add_parser("curve", help="One-dimensional curve workflows").add_subparsers(dest="curve_command", required=True)
     curve_compare = curve_p.add_parser("compare", help="Compare multiple standard CSV curves")
@@ -73,6 +124,11 @@ def main(argv=None) -> int:
         if args.demo_command == "list":
             for name, (description, config) in demos.items(): print(f"{name}: {description} ({config})")
             return 0
+        if args.demo_command == "init":
+            target = _copy_demo_project(args.name, args.dest)
+            config_name = "plot.yml" if args.name == "curve-comparison" else _demos()[args.name][1].name
+            print(f"Editable demo created: {target}\nNext: pypost curve compare --config {target / config_name}")
+            return 0
         description, config_path = demos[args.name]
         if not config_path.is_file(): raise FileNotFoundError(f"Demo configuration missing: {config_path}")
         output_dir = Path.cwd() / "pypost-demo-output"
@@ -82,14 +138,15 @@ def main(argv=None) -> int:
             config.setdefault("plot", {})["outputs"] = [str(output_dir / f"{stem}.pdf"), str(output_dir / f"{stem}.svg"), str(output_dir / f"{stem}.png")]
             print(compare(config, config_path.parent)); return 0
         if args.name == "cfd-curve-workflow":
-            config = read_yaml(config_path); output_dir.mkdir(parents=True, exist_ok=True)
-            for name, input_path in config["raw_inputs"].items():
-                data = load_data({"dimension": 1, "path": config_path.parent / input_path, "x": "time"})
-                save_data(data, output_dir / f"{name}.csv")
-            plot = deepcopy(read_yaml(config_path.parent / config["plot_config"]))
-            for item in plot["datasets"]: item["path"] = str(output_dir / f"{item.pop('case')}.csv")
-            plot["plot"]["outputs"] = [str(output_dir / "cfd_coefficients.pdf"), str(output_dir / "cfd_coefficients.svg")]
-            print(compare(plot, config_path.parent)); return 0
+            # Stage package-owned files first, then execute their unmodified,
+            # standalone YAML files. This is the same workflow a user gets
+            # with `pypost demo init`, not a hidden path-alias implementation.
+            project = output_dir / "cfd-curve-workflow"
+            shutil.copytree(config_path.parent, project, dirs_exist_ok=True)
+            workflow = read_yaml(project / config_path.name)
+            for conversion in workflow["convert_configs"]:
+                _convert_from_config(project / conversion)
+            print(compare(read_yaml(project / workflow["plot_config"]), project)); return 0
         config = load_config(config_path)
         config.setdefault("output", {})["image"] = str(output_dir / "q_surface.png")
         print(render(config, config_path.parent, config.get("time"))); return 0
@@ -118,15 +175,7 @@ def main(argv=None) -> int:
             index = Path(index_value); index = index if index.is_absolute() else config_path.parent / index
             Data3D.save_time_index(index, steps, {"conversion_options": config.get("options", {})})
             print(index); return 0
-        spec = dict(config["input"])
-        input_path = Path(spec["path"])
-        spec["path"] = input_path if input_path.is_absolute() else config_path.parent / input_path
-        data = load_data(spec)
-        if hasattr(data, "metadata"):
-            data.metadata.update({"raw_source": str(spec["path"]), "source_format": input_path.suffix.lstrip("."),
-                                  "conversion_options": config.get("options", {}), "internal_format_version": 1})
-        output_spec = Path(config["output"]["path"])
-        save_data(data, output_spec if output_spec.is_absolute() else config_path.parent / output_spec)
+        _convert_from_config(config_path)
         return 0
     if args.command == "curve":
         config_path = _config(args.config); print(compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0

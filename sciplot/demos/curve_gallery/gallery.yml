@@ -1,6 +1,7 @@
 # Synthetic 2x2 feature gallery. All transforms alter plotted values.
 plot:
   style: paper
+  outputs: [curve_gallery.pdf, curve_gallery.svg, curve_gallery.png]
   figure: {size: [178, 130], size_unit: mm, nrows: 2, ncols: 2, dpi: 180, tight: false, constrained_layout: true}
 panels:
   - panel_label: A
@@ -17,14 +18,16 @@ panels:
   - panel_label: C
     datasets:
       - {path: gallery.csv, x: x, y: positive, label: '$2^x/1000$', y_scale: 1000, style: {color: '#cc79a7', marker: '^', markersize: 3}}
-    axes: {xlabel: '$x^*$', ylabel: 'scaled response', xscale: log, yscale: symlog, yscale_kwargs: {linthresh: 1.0}, minor_ticks: true, scientific: {limits: [-2, 2]}, grid: {major: {alpha: 0.25}, minor: {alpha: 0.12, linestyle: ':'}}}
+    axes: {xlabel: '$x^*$', ylabel: 'positive response', xscale: log, yscale: log, minor_ticks: true, grid: {major: {alpha: 0.25}, minor: {alpha: 0.12, linestyle: ':'}}}
   - panel_label: D
     datasets:
       - {path: gallery.csv, x: x, y: residual, label: residual, kind: scatter, style: {color: '#0072b2', marker: s, s: 16}}
     hlines: [{y: 0, color: black, linewidth: 0.8, linestyle: '--'}]
-    axes: {xlabel: '$x^*$', ylabel: '$C_{sim}-C_{exp}$', grid: {major: {alpha: 0.25}}}
+    axes: {xlabel: '$x^*$', ylabel: '$C_{sim}-C_{exp}$', ylim: [-0.05, 0.05], yscale: symlog, yscale_kwargs: {linthresh: 0.01}, legend: false, grid: {major: {alpha: 0.25}}}
     inset:
-      bounds: [0.52, 0.08, '42%', '42%']
+      # Transparent background keeps the parent residual markers visible.
+      bounds: [0.62, 0.56, '30%', '27%']
+      style: {facecolor: none}
       datasets:
         - {path: gallery.csv, x: x, y: residual, kind: scatter, style: {color: '#0072b2', s: 10}}
       axes: {xlim: [0.7, 1.5], ylim: [-0.04, 0.04], legend: false, tick_params: {labelsize: 6}}

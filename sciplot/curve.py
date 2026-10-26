@@ -14,11 +14,48 @@ def _value(spec: dict[str, Any], name: str, default=0.0) -> float:
     return float(spec.get(name, spec.get("transform", {}).get(name, default)))
 
 
-def _curve(plot: Plot1D, item: dict[str, Any], base: Path):
+def _curve(plot: Plot1D, item: dict[str, Any], base: Path, axes: dict[str, Any] | None = None):
+    allowed = {"path", "x", "y", "label", "kind", "lower", "upper", "yerr", "style",
+               "x_scale", "x_offset", "y_scale", "y_offset", "transform"}
+    unknown = set(item) - allowed
+    if unknown:
+        raise KeyError(
+            f"Unknown dataset YAML key(s): {sorted(unknown)}. Common keys are path, x, y, "
+            "label, kind, style, x_scale, and y_scale."
+        )
+    for required in ("path", "x", "y"):
+        if required not in item:
+            raise KeyError(
+                f"Each dataset needs {required!r}. Add it under datasets (for example, "
+                "{path: data.csv, x: time, y: Cd})."
+            )
     source = Path(item["path"]); source = source if source.is_absolute() else base / source
-    data = Data1D.from_file(source, x=item.get("x")); field = item["y"]
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"Curve input file not found: {source}. Check datasets[].path; relative paths start at {base}."
+        )
+    try:
+        data = Data1D.from_file(source, x=item["x"])
+    except KeyError as exc:
+        raise KeyError(
+            f"CSV column error in {source.name}: {exc}. Check datasets[].x and the CSV header."
+        ) from exc
+    field = item["y"]
+    if field not in data.fields:
+        raise KeyError(
+            f"Column {field!r} was not found in {source.name}. Available columns: "
+            f"{[data.x_name, *data.fields]}. Check datasets[].y."
+        )
     xfun = lambda v: Plot1D.transformed(v, _value(item, "x_scale", 1), _value(item, "x_offset", 0))
     yfun = lambda v: Plot1D.transformed(v, _value(item, "y_scale", 1), _value(item, "y_offset", 0))
+    axes = axes or {}
+    for label, values, scale in (("x", xfun(data.x), axes.get("xscale", "linear")),
+                                 ("y", yfun(data.fields[field]), axes.get("yscale", "linear"))):
+        if scale == "log" and np.any(np.asarray(values) <= 0):
+            raise ValueError(
+                f"Cannot use a log {label}-axis with zero or negative values in {source.name}. "
+                f"Choose symlog or adjust {label}_scale/{label}_offset."
+            )
     style, label, kind = dict(item.get("style", {})), item.get("label", source.stem), item.get("kind", "line")
     if kind == "line": return plot.line(data, field, label, xfun, yfun, **style)
     if kind == "scatter": return plot.scatter(data, field, label, xfun, yfun, **style)
@@ -32,8 +69,10 @@ def _curve(plot: Plot1D, item: dict[str, Any], base: Path):
 
 
 def _panel(plot: Plot1D, spec: dict[str, Any], base: Path):
-    for item in spec.get("datasets", []): _curve(plot, item, base)
     axes = spec.get("axes", spec.get("plot", {}).get("axes", {}))
+    if not isinstance(axes, dict):
+        raise TypeError("axes must be a YAML mapping, for example: axes: {xlabel: time, ylabel: Cd}.")
+    for item in spec.get("datasets", []): _curve(plot, item, base, axes)
     legend = axes.get("legend", bool(spec.get("datasets")))
     kwargs = deepcopy(legend) if isinstance(legend, dict) else {"loc": axes.get("legend_loc", "best")}
     plot.set_axes(xlabel=axes.get("xlabel"), ylabel=axes.get("ylabel"), title=axes.get("title"), xlim=axes.get("xlim"), ylim=axes.get("ylim"),
@@ -47,13 +86,20 @@ def _panel(plot: Plot1D, spec: dict[str, Any], base: Path):
     for item in spec.get("hlines", []): plot.hline(item["y"], **{k:v for k,v in item.items() if k != "y"})
     inset = spec.get("inset")
     if inset:
-        child = plot.inset(inset.get("bounds", [0.55, 0.08, "40%", "40%"]))
+        child = plot.inset(inset.get("bounds", [0.55, 0.08, "40%", "40%"]),
+                           axes_kwargs=inset.get("style"))
         child_spec = {**inset, "datasets": inset.get("datasets", spec.get("datasets", [])), "inset": None}
         _panel(child, child_spec, base)
 
 
 def compare(config: dict[str, Any], base: str | Path = ".", output: str | Path | None = None, show: bool = False) -> Path:
     """Render a single comparison or YAML ``panels`` grid without interpolating."""
+    if not isinstance(config, dict):
+        raise TypeError("Curve YAML must contain a mapping. Start with datasets: or panels:.")
+    allowed = {"datasets", "plot", "panels", "axes", "panel_label", "hlines", "inset"}
+    unexpected = set(config) - allowed
+    if unexpected:
+        raise KeyError(f"Unknown top-level curve YAML key(s): {sorted(unexpected)}. Allowed keys: {sorted(allowed)}.")
     base = Path(base); plot_cfg = config.get("plot", config); figure = plot_cfg.get("figure", {}); panels = config.get("panels")
     if panels:
         size = tuple(figure.get("size", (6.4, 4.2))); size = tuple(x / 25.4 for x in size) if figure.get("size_unit") == "mm" else size
@@ -66,7 +112,12 @@ def compare(config: dict[str, Any], base: str | Path = ".", output: str | Path |
     outputs = [Path(v) for v in (plot_cfg.get("outputs") or [plot_cfg.get("output", "curve_compare.png")])]
     if output is not None: outputs = [Path(output)]
     outputs = [p if p.is_absolute() else base / p for p in outputs]
-    for path in outputs: path.parent.mkdir(parents=True, exist_ok=True); renderer.save(path, dpi=figure.get("dpi"), tight=bool(figure.get("tight", False)))
+    for path in outputs:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            renderer.save(path, dpi=figure.get("dpi"), tight=bool(figure.get("tight", False)))
+        except OSError as exc:
+            raise OSError(f"Cannot save figure to {path}. Check plot.outputs and directory permissions.") from exc
     if show:
         if not os.environ.get("DISPLAY"): raise RuntimeError("Interactive preview requires a graphical DISPLAY.")
         plt.show()

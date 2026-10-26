@@ -1,0 +1,15 @@
+# Panel D: use symlog for signed residuals; the inset is deliberately compact.
+datasets:
+  - {path: ../gallery.csv, x: x, y: residual, label: residual, kind: scatter, style: {color: '#0072b2', marker: s, s: 16}}
+hlines: [{y: 0, color: black, linewidth: 0.8, linestyle: '--'}]
+inset:
+  bounds: [0.62, 0.56, '30%', '27%']
+  style: {facecolor: none}
+  datasets:
+    - {path: ../gallery.csv, x: x, y: residual, kind: scatter, style: {color: '#0072b2', s: 10}}
+  axes: {xlim: [0.7, 1.5], ylim: [-0.04, 0.04], legend: false, tick_params: {labelsize: 6}}
+plot:
+  style: paper
+  outputs: [panel_d_symlog.pdf]
+  figure: {size: [88, 62], size_unit: mm}
+  axes: {xlabel: '$x^*$', ylabel: residual, ylim: [-0.05, 0.05], yscale: symlog, yscale_kwargs: {linthresh: 0.01}, legend: false, grid: {major: {alpha: 0.25}}}

@@ -27,8 +27,8 @@ datasets:
 plot:
   style: paper
   outputs:
-    - ../../../output/demos/curve_comparison.pdf
-    - ../../../output/demos/curve_comparison.svg
+    - curve_comparison.pdf
+    - curve_comparison.svg
   figure: {size: [6.6, 3.6], dpi: 180}
   axes:
     xlabel: "$t^*$"

@@ -1,0 +1,3 @@
+# Convert this raw synthetic OpenFOAM-style table once.
+input: {dimension: 1, path: case_a.xy, x: time}
+output: {path: standardized/case_a.csv}

@@ -1,0 +1,8 @@
+# Panel C: both x and y are strictly positive, so a conventional log-log view is clearest.
+datasets:
+  - {path: ../gallery.csv, x: x, y: positive, label: positive response, style: {color: '#cc79a7', marker: '^', markersize: 3}}
+plot:
+  style: paper
+  outputs: [panel_c_loglog.pdf]
+  figure: {size: [88, 62], size_unit: mm}
+  axes: {xlabel: '$x^*$', ylabel: 'response', xscale: log, yscale: log, minor_ticks: true, grid: {major: {alpha: 0.25}, minor: {alpha: 0.12, linestyle: ':'}}}

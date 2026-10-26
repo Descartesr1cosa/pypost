@@ -111,9 +111,10 @@ class Plot1D:
 
     def inset(self, bounds, **kwargs):
         from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        axes_kwargs = kwargs.pop("axes_kwargs", None)
         axis = inset_axes(self.ax, width=bounds[2], height=bounds[3], loc="lower left",
                           bbox_to_anchor=(bounds[0], bounds[1], 1, 1), bbox_transform=self.ax.transAxes,
-                          borderpad=0, **kwargs)
+                          borderpad=0, axes_kwargs=axes_kwargs, **kwargs)
         return Plot1D(ax=axis, style=None)
 
     def save(self, path: str | Path, dpi: int | None = None, tight: bool = False, **kwargs):
