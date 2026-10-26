@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 from .inspect import inspect_path
 from .workflow import load_data, read_yaml, save_data
+from .io import validate_dataset
 
 
 def _config(value: str): return Path(value).resolve()
@@ -108,6 +109,9 @@ def main(argv=None) -> int:
     convert_p.add_argument("--config", required=True)
     inspect_p = commands.add_parser("inspect", help="Show fields, ranges, and mesh summary")
     inspect_p.add_argument("data_path")
+    validate_p = commands.add_parser("validate", help="Validate a pypost standard dataset without modifying it")
+    validate_p.add_argument("data_path")
+    validate_p.add_argument("--deep", action="store_true", help="Also calculate file/dependency SHA-256 checksums")
     demo_p = commands.add_parser("demo", help="Discover and run bundled self-contained workflows").add_subparsers(dest="demo_command", required=True)
     demo_p.add_parser("list", help="List bundled demos")
     demo_run = demo_p.add_parser("run", help="Run a bundled demo using the normal core workflow")
@@ -137,6 +141,11 @@ def main(argv=None) -> int:
         if name == "batch": item.add_argument("--resume", action="store_true"); item.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "inspect": print(inspect_path(args.data_path)); return 0
+    if args.command == "validate":
+        import json
+        result = validate_dataset(args.data_path, args.deep)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["valid"] else 1
     if args.command == "doctor": print(_doctor()); return 0
     if args.command == "demo":
         demos = _demos()

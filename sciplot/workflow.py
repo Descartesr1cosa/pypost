@@ -24,6 +24,11 @@ def load_data(spec: dict[str, Any]):
     dimension = str(spec["dimension"]).lower().replace("d", "")
     path = spec["path"]
     if dimension == "1":
+        if str(path).lower().endswith(".npz"):
+            from .io import load_dataset
+            result = load_dataset(path)
+            if not isinstance(result, Data1D): raise TypeError(f"Expected 1-D NPZ dataset, got {type(result).__name__}")
+            return result
         return Data1D.from_file(path, x=spec.get("x"))
     if dimension == "2":
         return Data2D.from_npz(path) if str(path).lower().endswith(".npz") else Data2D.from_vtk(path)
@@ -33,8 +38,14 @@ def load_data(spec: dict[str, Any]):
 
 
 def save_data(data, path: str | Path) -> None:
+    # Legacy workflow paths retain their familiar extension behavior. New
+    # converter code should call sciplot.io.save_dataset explicitly.
     path = Path(path)
     if isinstance(data, Data1D):
+        if path.suffix.lower() == ".npz":
+            from .io import save_dataset
+            save_dataset(data, path, encoding="binary")
+            return
         data.save_csv(path)
     elif isinstance(data, Data2D):
         if path.suffix.lower() != ".npz":

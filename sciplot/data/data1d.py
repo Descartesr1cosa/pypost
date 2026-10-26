@@ -31,17 +31,24 @@ class Data1D:
     x_unit: str | None = None
     field_units: dict[str, str] = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+    sort: bool = True
 
     def __post_init__(self):
-        self.x = np.asarray(self.x, dtype=float).reshape(-1)
-        self.fields = {str(k): np.asarray(v).reshape(-1) for k, v in self.fields.items()}
+        # Keep an incoming float32/float64 dtype and vector component axis.
+        # Readers retain the historical sorted behavior; strict NPZ loading
+        # opts out explicitly so storage never reorders a recorded sample.
+        self.x = np.asarray(self.x).reshape(-1)
+        if not np.issubdtype(self.x.dtype, np.number):
+            raise TypeError(f"Data1D coordinate must be numeric, got {self.x.dtype}")
+        self.fields = {str(k): _field_array(v) for k, v in self.fields.items()}
         if not self.fields:
             raise ValueError("Data1D requires at least one field")
-        if any(len(v) != len(self.x) for v in self.fields.values()):
+        if any(v.shape[0] != len(self.x) for v in self.fields.values()):
             raise ValueError("Each field must have the same length as x")
-        order = np.argsort(self.x)
-        self.x = self.x[order]
-        self.fields = {k: v[order] for k, v in self.fields.items()}
+        if self.sort:
+            order = np.argsort(self.x, kind="stable")
+            self.x = self.x[order]
+            self.fields = {k: v[order] for k, v in self.fields.items()}
 
     @classmethod
     def from_arrays(cls, x, fields: Mapping[str, object], **kwargs) -> "Data1D":
@@ -89,6 +96,9 @@ class Data1D:
                    metadata=metadata, **kwargs)
 
     def to_frame(self) -> pd.DataFrame:
+        vector = [name for name, values in self.fields.items() if values.ndim != 1]
+        if vector:
+            raise ValueError("CSV stores scalar 1-D fields only; use save_dataset(..., '.npz') for vector/tensor fields: " + ", ".join(vector))
         return pd.DataFrame({self.x_name: self.x, **self.fields})
 
     def save_csv(self, path: str | Path, metadata: bool = True) -> None:
@@ -114,3 +124,11 @@ class Data1D:
                 json.dumps(record, ensure_ascii=False, indent=2, default=str) + "\n",
                 encoding="utf-8",
             )
+
+
+def _field_array(values: object) -> np.ndarray:
+    array = np.asarray(values)
+    if array.ndim == 0: return array.reshape(1)
+    if not np.issubdtype(array.dtype, np.number):
+        raise TypeError(f"Data1D field must be numeric, got {array.dtype}")
+    return array

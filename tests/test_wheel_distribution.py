@@ -68,3 +68,12 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     subprocess.run([sys.executable, "-m", "sciplot.cli", "curve", "compare", "--config", str(cfd_project / "compare.yml")], cwd=tmp_path, env=env, check=True)
     assert (cfd_project / "standardized" / "case_a.csv").is_file()
     assert (cfd_project / "cfd_coefficients.pdf").is_file()
+
+    # Standard I/O must also work from the ordinary wheel, not just source.
+    standard = tmp_path / "wheel-standard.npz"
+    code = (
+        "import numpy as np; from sciplot import Data1D, save_dataset, load_dataset, validate_dataset; "
+        f"p=r'{standard}'; d=Data1D(np.array([1, 0], dtype=np.float32), {{'Cd': np.array([.5, .6], dtype=np.float32)}}, sort=False); "
+        "save_dataset(d, p); r=load_dataset(p); assert r.x.dtype == np.float32 and validate_dataset(p)['valid']"
+    )
+    subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env, check=True)

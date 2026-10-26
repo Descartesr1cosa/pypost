@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 from .data import Data1D, Data3D
+from .io import inspect_dataset
 
 
 def _range(values) -> str:
@@ -48,7 +49,19 @@ def inspect_3d(path: str | Path) -> str:
 
 
 def inspect_path(path: str | Path) -> str:
-    path = Path(path)
-    if path.suffix.lower() in {".csv", ".txt", ".xy", ".dat"}:
-        return inspect_1d(path)
-    return inspect_3d(path)
+    """Human-readable compatibility wrapper around the structured report API."""
+    report = inspect_dataset(path)
+    dimension = report["dimension"]
+    if dimension == "1d":
+        coordinate = report["coordinate"]
+        lines = [f"1-D {'CSV' if report['encoding'] == 'ascii' else 'NPZ'}: {report['path']}",
+                 f"format: {report['format']} v{report['format_version']}; encoding: {report['encoding']}",
+                 f"rows: {report['points']}", f"coordinate: {coordinate['name']} {_range([]) if 'range' not in coordinate else coordinate['range']}"]
+    else:
+        lines = [f"{dimension.upper()} dataset: {report['path']}",
+                 f"format: {report['format']} v{report['format_version']}; encoding: {report['encoding']}",
+                 f"mesh: {report.get('mesh_type')}; points: {report.get('points', 0)}; cells: {report.get('cells', 0)}"]
+    for field in report["fields"]:
+        unit = f" [{field['unit']}]" if field.get("unit") else ""
+        lines.append(f"field {field['location']} {field['name']}{unit}: shape={tuple(field['shape'])}; dtype={field['dtype']}; components={field['components']}; nan={field['nan']}; inf={field['inf']}")
+    return "\n".join(lines)

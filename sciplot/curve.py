@@ -8,6 +8,7 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 from .data import Data1D
+from .io import load_dataset
 from .plotting import Plot1D
 from .plotting.layout import apply_layout, capture_layout, load_layout
 
@@ -37,7 +38,9 @@ def _curve(plot: Plot1D, item: dict[str, Any], base: Path, axes: dict[str, Any] 
             f"Curve input file not found: {source}. Check datasets[].path; relative paths start at {base}."
         )
     try:
-        data = Data1D.from_file(source, x=item["x"])
+        data = load_dataset(source) if source.suffix.lower() == ".npz" else Data1D.from_file(source, x=item["x"])
+        if not isinstance(data, Data1D):
+            raise TypeError(f"Curve dataset {source} is not 1-D standard data")
     except KeyError as exc:
         raise KeyError(
             f"CSV column error in {source.name}: {exc}. Check datasets[].x and the CSV header."

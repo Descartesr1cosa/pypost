@@ -18,6 +18,29 @@ pypost q render --config configs/examples/q_surface.yml --time 60.5
 The official demos are self-contained: they do not read `pypost_examples/` or
 another external case directory.
 
+## Standard data protocol and converter API
+
+New solver or experimental formats should be converted by a small dedicated
+Python script, then checked before plotting:
+
+```python
+from sciplot import Data1D, save_dataset, validate_dataset
+
+data = Data1D(time, {"Cd": cd}, x_name="time", sort=False)
+save_dataset(data, "standard/force_history.npz")
+assert validate_dataset("standard/force_history.npz")["valid"]
+```
+
+The complete converter contract, array/topology rules, ASCII/Binary behavior,
+compatibility policy, and future preview/manifest boundary are documented in
+[`docs/data-format/`](docs/data-format/README.md). A runnable external-table
+converter is in [`examples/converters/`](examples/converters/convert_table_to_pypost.py).
+
+```bash
+pypost inspect standard/force_history.npz
+pypost validate standard/force_history.npz --deep
+```
+
 ```bash
 pypost doctor
 pypost demo list

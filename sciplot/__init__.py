@@ -2,7 +2,8 @@
 
 from .data import Data1D, Data2D, Data3D, FieldInfo
 
-__all__ = ["Data1D", "Data2D", "Data3D", "FieldInfo", "Plot1D", "Plot2D", "Plot3D"]
+__all__ = ["Data1D", "Data2D", "Data3D", "FieldInfo", "Plot1D", "Plot2D", "Plot3D",
+           "save_dataset", "load_dataset", "inspect_dataset", "validate_dataset"]
 
 
 def __getattr__(name):
@@ -10,4 +11,7 @@ def __getattr__(name):
     if name in {"Plot1D", "Plot2D", "Plot3D"}:
         from . import plotting
         return getattr(plotting, name)
+    if name in {"save_dataset", "load_dataset", "inspect_dataset", "validate_dataset"}:
+        from . import io
+        return getattr(io, name)
     raise AttributeError(name)

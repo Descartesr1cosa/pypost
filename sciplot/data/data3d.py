@@ -103,17 +103,17 @@ class Data3D:
             raise KeyError(f"Field {field!r} is absent or ambiguous across locations: {locations}")
         return locations.pop()
 
-    def save(self, path: str | Path) -> None:
+    def save(self, path: str | Path, binary: bool = True) -> None:
         """Write VTK XML data (e.g. .vtu or .vtm) readable by ParaView."""
         path = Path(path)
         if path.suffix.lower() not in {".vtu", ".vts", ".vti", ".vtm", ".vtp"}:
             raise ValueError("3-D normalized output must be VTK XML (.vtu/.vts/.vti/.vtm/.vtp)")
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.mesh.save(path)
+        self.mesh.save(path, binary=binary)
         record = {
             "format": "pypost-3d", "format_version": 1, "source": self.source,
             "physical_time": self.time, "fields": [info.__dict__ for info in self.field_info],
-            "metadata": self.metadata,
+            "metadata": self.metadata, "encoding": "binary" if binary else "ascii",
         }
         path.with_suffix(path.suffix + ".pypost.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8"
