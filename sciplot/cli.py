@@ -21,6 +21,8 @@ def _demos() -> dict[str, tuple[str, Path]]:
     root = _project_root()
     return {
         "curve-comparison": ("Self-contained synthetic three-curve comparison", root / "demos" / "curve_demo" / "curve_comparison.yml"),
+        "curve-gallery": ("Synthetic 2x2 scientific plotting feature gallery", root / "demos" / "curve_gallery" / "gallery.yml"),
+        "cfd-curve-workflow": ("Raw OpenFOAM-style curve conversion and paper plot", root / "demos" / "cfd_curve_demo" / "workflow.yml"),
         "q-surface": ("Supplied Q surface with reproducible camera and scene", root / "demos" / "q_demo" / "q_surface.yml"),
     }
 
@@ -54,6 +56,8 @@ def main(argv=None) -> int:
     curve_p = commands.add_parser("curve", help="One-dimensional curve workflows").add_subparsers(dest="curve_command", required=True)
     curve_compare = curve_p.add_parser("compare", help="Compare multiple standard CSV curves")
     curve_compare.add_argument("--config", required=True)
+    curve_compare.add_argument("--output", help="Override output path without modifying YAML")
+    curve_compare.add_argument("--show", action="store_true", help="Preview interactively when DISPLAY is available")
     q_p = commands.add_parser("q", help="Q-criterion surface and scene workflows").add_subparsers(dest="q_command", required=True)
     for name, help_text in (("extract", "Extract/cache a Q isosurface"), ("camera", "Interactively edit camera JSON"), ("render", "Render one Q scene"), ("batch", "Render configured time steps in isolated subprocesses")):
         item = q_p.add_parser(name, help=help_text); item.add_argument("--config", required=True)
@@ -72,10 +76,20 @@ def main(argv=None) -> int:
         description, config_path = demos[args.name]
         if not config_path.is_file(): raise FileNotFoundError(f"Demo configuration missing: {config_path}")
         output_dir = Path.cwd() / "pypost-demo-output"
-        if args.name == "curve-comparison":
+        if args.name in {"curve-comparison", "curve-gallery"}:
             config = deepcopy(read_yaml(config_path))
-            config.setdefault("plot", {})["outputs"] = [str(output_dir / "curve_comparison.pdf"), str(output_dir / "curve_comparison.svg")]
+            stem = "curve_comparison" if args.name == "curve-comparison" else "curve_gallery"
+            config.setdefault("plot", {})["outputs"] = [str(output_dir / f"{stem}.pdf"), str(output_dir / f"{stem}.svg"), str(output_dir / f"{stem}.png")]
             print(compare(config, config_path.parent)); return 0
+        if args.name == "cfd-curve-workflow":
+            config = read_yaml(config_path); output_dir.mkdir(parents=True, exist_ok=True)
+            for name, input_path in config["raw_inputs"].items():
+                data = load_data({"dimension": 1, "path": config_path.parent / input_path, "x": "time"})
+                save_data(data, output_dir / f"{name}.csv")
+            plot = deepcopy(read_yaml(config_path.parent / config["plot_config"]))
+            for item in plot["datasets"]: item["path"] = str(output_dir / f"{item.pop('case')}.csv")
+            plot["plot"]["outputs"] = [str(output_dir / "cfd_coefficients.pdf"), str(output_dir / "cfd_coefficients.svg")]
+            print(compare(plot, config_path.parent)); return 0
         config = load_config(config_path)
         config.setdefault("output", {})["image"] = str(output_dir / "q_surface.png")
         print(render(config, config_path.parent, config.get("time"))); return 0
@@ -115,7 +129,7 @@ def main(argv=None) -> int:
         save_data(data, output_spec if output_spec.is_absolute() else config_path.parent / output_spec)
         return 0
     if args.command == "curve":
-        config_path = _config(args.config); print(compare(read_yaml(config_path), config_path.parent)); return 0
+        config_path = _config(args.config); print(compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
     config_path = _config(args.config); config = load_config(config_path); base = config_path.parent
     if args.q_command == "extract": print(extract(config, base, args.time, args.force)); return 0
     if args.q_command == "camera": camera_editor(config, base, args.time); return 0

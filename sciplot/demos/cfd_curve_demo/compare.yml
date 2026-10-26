@@ -1,0 +1,12 @@
+datasets:
+  - {case: case_a, x: time, y: Cd, label: case A, style: {color: '#0072b2', linewidth: 1.6}}
+  - {case: case_b, x: time, y: Cd, label: case B, style: {color: '#d55e00', linestyle: --, marker: o, markersize: 3}}
+plot:
+  style: paper
+  outputs: [cfd_coefficients.pdf, cfd_coefficients.svg]
+  figure: {size: [88, 62], size_unit: mm, dpi: 180}
+  axes:
+    xlabel: '$t$ [s]'
+    ylabel: '$C_d$'
+    legend: {loc: upper right, frameon: false}
+    grid: {major: {alpha: 0.25}}

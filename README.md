@@ -53,6 +53,74 @@ output:
 entry. `q batch` rejects non-unique time-step surface or image paths before
 starting subprocesses.
 
+## Five-minute 1-D Quick Start
+
+```bash
+pypost demo list
+pypost demo run curve-comparison
+pypost demo run curve-gallery
+pypost demo run cfd-curve-workflow
+```
+
+Each command writes reproducible artifacts to `pypost-demo-output/` in the
+current working directory. The three curve demos are self-contained and their
+data are explicitly synthetic. The gallery preview is available at
+[`sciplot/demos/curve_gallery/preview.png`](sciplot/demos/curve_gallery/preview.png).
+
+Use YAML for normal work, without editing library code:
+
+```bash
+pypost curve compare --config compare.yml --output paper_figure.pdf
+pypost curve compare --config compare.yml --show  # desktop DISPLAY only
+```
+
+CLI options override YAML but never rewrite it. A minimal configuration is:
+
+```yaml
+datasets:
+  - path: normalized_case_a.csv
+    x: time
+    y: Cd
+    x_scale: 1.0
+    y_scale: 1.0
+    y_offset: 0.0
+    label: case A
+    style: {color: '#0072b2', linewidth: 1.5}
+plot:
+  style: paper
+  outputs: [paper_figure.pdf, paper_figure.svg, paper_figure.png]
+  figure: {size: [88, 62], size_unit: mm, dpi: 300, tight: false}
+  axes:
+    xlabel: '$t$ [s]'
+    ylabel: '$C_d$'
+    legend: {loc: upper right, frameon: false, ncol: 1}
+    minor_ticks: true
+    grid: {major: {alpha: 0.25}, minor: {alpha: 0.10, linestyle: ':'}}
+```
+
+`Plot1D` supports `line`, `scatter`, `errorbar`, `band`, external Matplotlib
+Axes, panel labels, reference lines, annotations, and inset axes. Values—not
+only labels—are transformed by `x_scale`/`x_offset` and
+`y_scale`/`y_offset`; error magnitudes are scaled but never offset. Curves are
+not interpolated or aligned implicitly. `default` and `paper` styles are local
+to each Plot1D instance and do not alter global Matplotlib settings.
+
+```python
+import matplotlib.pyplot as plt
+from sciplot import Plot1D
+
+fig, axes = plt.subplots(2, 2, sharex=True)
+plot = Plot1D(ax=axes[0, 0], style="paper")
+plot.line(data, "Cd", label="case A")
+plot.hline(0.6, color="0.4", linestyle="--")
+plot.panel_label("A")
+plot.set_axes(xlabel="$t$", ylabel="$C_d$", minor_ticks=True)
+```
+
+For a raw-CFD workflow, see `sciplot/demos/cfd_curve_demo/`: raw sampled
+tables become independent standard CSV + JSON sidecars first, and the plotting
+YAML can then be adjusted and rerun without converting the raw data again.
+
 1-D normalized data is a CSV plus optional `.csv.json` sidecar for units and
 provenance.  3-D data stays in VTK XML (`.vtu`, `.vts`, `.vti`, `.vtm`); point
 and cell arrays are never silently merged. Q surfaces are `.vtp` files and do

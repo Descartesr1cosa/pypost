@@ -1,0 +1,30 @@
+# Synthetic 2x2 feature gallery. All transforms alter plotted values.
+plot:
+  style: paper
+  figure: {size: [178, 130], size_unit: mm, nrows: 2, ncols: 2, dpi: 180, tight: false, constrained_layout: true}
+panels:
+  - panel_label: A
+    datasets:
+      - {path: gallery.csv, x: x, y: sim, label: simulation, style: {color: '#306998', linewidth: 1.6}}
+      - {path: gallery.csv, x: x, y: exp, label: experiment, kind: scatter, style: {color: '#d55e00', marker: o, s: 18, zorder: 3}}
+    axes: {xlabel: '$x^*$', ylabel: '$C$', legend: {loc: lower right, frameon: false, fontsize: 7}, grid: {major: {alpha: 0.25}}}
+  - panel_label: B
+    datasets:
+      - {path: gallery.csv, x: x, y: exp, label: uncertainty band, kind: band, lower: low, upper: high, style: {color: '#56b4e9', alpha: 0.28}}
+      - {path: gallery.csv, x: x, y: exp, label: measured, kind: errorbar, yerr: err, style: {color: '#d55e00', marker: o, markersize: 3, linestyle: none, capsize: 2}}
+      - {path: gallery.csv, x: x, y: sim, label: simulation, style: {color: '#009e73', linestyle: --}}
+    axes: {xlabel: '$x^*$', ylabel: '$C$', legend: {loc: lower right, frameon: false, fontsize: 7}, grid: {major: {alpha: 0.25}}}
+  - panel_label: C
+    datasets:
+      - {path: gallery.csv, x: x, y: positive, label: '$2^x/1000$', y_scale: 1000, style: {color: '#cc79a7', marker: '^', markersize: 3}}
+    axes: {xlabel: '$x^*$', ylabel: 'scaled response', xscale: log, yscale: symlog, yscale_kwargs: {linthresh: 1.0}, minor_ticks: true, scientific: {limits: [-2, 2]}, grid: {major: {alpha: 0.25}, minor: {alpha: 0.12, linestyle: ':'}}}
+  - panel_label: D
+    datasets:
+      - {path: gallery.csv, x: x, y: residual, label: residual, kind: scatter, style: {color: '#0072b2', marker: s, s: 16}}
+    hlines: [{y: 0, color: black, linewidth: 0.8, linestyle: '--'}]
+    axes: {xlabel: '$x^*$', ylabel: '$C_{sim}-C_{exp}$', grid: {major: {alpha: 0.25}}}
+    inset:
+      bounds: [0.52, 0.08, '42%', '42%']
+      datasets:
+        - {path: gallery.csv, x: x, y: residual, kind: scatter, style: {color: '#0072b2', s: 10}}
+      axes: {xlim: [0.7, 1.5], ylim: [-0.04, 0.04], legend: false, tick_params: {labelsize: 6}}

@@ -16,7 +16,7 @@ def test_band_is_scaled_with_y_values_and_paper_style(tmp_path):
     compare(config, tmp_path)
     vertices = plt.gca().collections[0].get_paths()[0].vertices[:, 1]
     assert np.nanmin(vertices) == 5 and np.nanmax(vertices) == 25
-    assert target.is_file() and matplotlib.rcParams["figure.dpi"] == 300
+    assert target.is_file() and plt.gca().figure.dpi == 300
 
 
 def test_bundled_curve_demo_generates_pdf_and_svg(tmp_path):

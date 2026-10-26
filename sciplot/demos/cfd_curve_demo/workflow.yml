@@ -1,0 +1,3 @@
+# Raw OpenFOAM-style sampled tables -> normalized CSV/JSON -> paper figure.
+raw_inputs: {case_a: case_a.xy, case_b: case_b.xy}
+plot_config: compare.yml

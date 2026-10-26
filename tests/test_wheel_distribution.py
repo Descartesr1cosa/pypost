@@ -18,6 +18,8 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
     assert any(name.endswith("sciplot/demos/curve_demo/curve_comparison.yml") for name in names)
+    assert any(name.endswith("sciplot/demos/curve_gallery/gallery.yml") for name in names)
+    assert any(name.endswith("sciplot/demos/cfd_curve_demo/workflow.yml") for name in names)
     assert any(name.endswith("sciplot/demos/q_demo/Q_sample.vtp") for name in names)
     assert any(name.endswith("entry_points.txt") for name in names)
     target = tmp_path / "installed"
@@ -30,3 +32,7 @@ def test_wheel_contains_cli_and_bundled_demos(tmp_path):
     subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "curve-comparison"], cwd=tmp_path, env=env, check=True)
     assert (tmp_path / "pypost-demo-output" / "curve_comparison.pdf").is_file()
     assert (tmp_path / "pypost-demo-output" / "curve_comparison.svg").is_file()
+    subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "curve-gallery"], cwd=tmp_path, env=env, check=True)
+    subprocess.run([sys.executable, "-m", "sciplot.cli", "demo", "run", "cfd-curve-workflow"], cwd=tmp_path, env=env, check=True)
+    assert (tmp_path / "pypost-demo-output" / "curve_gallery.png").is_file()
+    assert (tmp_path / "pypost-demo-output" / "cfd_coefficients.svg").is_file()
