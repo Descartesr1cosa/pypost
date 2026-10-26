@@ -20,8 +20,8 @@ def _compare(*args, **kwargs):
 
 def _q_workflow():
     """Delay PyVista/plot imports until a Q command actually needs them."""
-    from .q import batch, camera_editor, extract, load_config, render
-    return batch, camera_editor, extract, load_config, render
+    from .q import batch, camera_editor, extract, freeze, load_config, prepare, render
+    return batch, camera_editor, extract, freeze, load_config, prepare, render
 
 
 def _project_root() -> Path:
@@ -120,13 +120,25 @@ def main(argv=None) -> int:
     demo_init.add_argument("name", choices=("curve-comparison", "curve-layout", "curve-annotations", "curve-gallery", "cfd-curve-workflow"))
     demo_init.add_argument("--dest", required=True, help="New writable project directory (must not already exist)")
     commands.add_parser("doctor", help="Report versions, demo assets, and rendering prerequisites")
-    plot_p = commands.add_parser("plot", help="Render a 1-D YAML figure without opening a GUI")
-    plot_p.add_argument("config", help="1-D curve YAML file")
+    plot_p = commands.add_parser("plot", help="Render a 1-D or frozen Q YAML figure without opening a GUI")
+    plot_p.add_argument("config", help="Curve or Q YAML file")
     plot_p.add_argument("--output", help="Override output path without modifying YAML")
     plot_p.add_argument("--show", action="store_true", help="Preview interactively when DISPLAY is available")
-    edit_p = commands.add_parser("edit", help="Interactively adjust a 1-D figure layout and save JSON")
-    edit_p.add_argument("config", help="1-D curve YAML file")
+    edit_p = commands.add_parser("edit", help="Interactively adjust a 1-D layout or prepared Q view")
+    edit_p.add_argument("config", help="Curve or prepared Q YAML file")
     edit_p.add_argument("--layout", help="JSON path to save instead of plot.layout.overrides")
+    prepare_p = commands.add_parser("prepare", help="Create a portable Q preview package without rendering")
+    prepare_p.add_argument("config", help="Q YAML with a standard volume or Q surface")
+    prepare_p.add_argument("--time", type=float)
+    prepare_p.add_argument("--out", required=True, help="Preview package directory")
+    prepare_p.add_argument("--force", action="store_true", help="Re-extract a Q surface when full volume input is used")
+    freeze_p = commands.add_parser("freeze", help="Merge a prepared Q scene and view JSON into final YAML")
+    freeze_p.add_argument("scene", help="Prepared preview/scene.yml")
+    freeze_p.add_argument("--out", required=True, help="Frozen final YAML path")
+    unified_batch = commands.add_parser("batch", help="Render a frozen Q configuration through the existing Q batch worker")
+    unified_batch.add_argument("config", help="Q final YAML")
+    unified_batch.add_argument("--resume", action="store_true")
+    unified_batch.add_argument("--dry-run", action="store_true")
     curve_p = commands.add_parser("curve", help="One-dimensional curve workflows").add_subparsers(dest="curve_command", required=True)
     curve_compare = curve_p.add_parser("compare", help="Compare multiple standard CSV curves")
     curve_compare.add_argument("--config", required=True)
@@ -210,21 +222,41 @@ def main(argv=None) -> int:
     if args.command == "curve":
         config_path = _config(args.config); print(_compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
     if args.command == "plot":
-        config_path = _config(args.config); print(_compare(read_yaml(config_path), config_path.parent, args.output, args.show)); return 0
+        config_path = _config(args.config); config = read_yaml(config_path)
+        if config.get("kind") == "q":
+            if args.show: raise ValueError("`pypost plot` Q rendering is off-screen; use `pypost edit` on a desktop for interactive preview.")
+            _, _, _, _, load_config, _, render = _q_workflow()
+            if args.output: config.setdefault("output", {})["image"] = args.output
+            print(render(load_config(config_path) if not args.output else config, config_path.parent, config.get("time"))); return 0
+        print(_compare(config, config_path.parent, args.output, args.show)); return 0
     if args.command == "edit":
+        config_path = _config(args.config); config = read_yaml(config_path)
+        if config.get("kind") == "q":
+            _, camera_editor, _, _, load_config, _, _ = _q_workflow()
+            camera_editor(load_config(config_path), config_path.parent, config.get("time")); return 0
         # This intentionally occurs before importing curve.py/pyplot.
         from .plotting.figure_editor import ensure_interactive_backend
         ensure_interactive_backend()
         from .curve import build_figure
         from .plotting.figure_editor import open_editor
-        config_path = _config(args.config); config = read_yaml(config_path)
         renderer, panels, annotations, plot_cfg, defaults = build_figure(config, config_path.parent)
         layout = args.layout or plot_cfg.get("layout", {}).get("overrides")
         target = Path(layout) if layout else config_path.with_suffix(".layout.json")
         if not target.is_absolute(): target = config_path.parent / target
         open_editor(renderer.fig, panels, annotations, target, defaults)
         return 0
-    batch, camera_editor, extract, load_config, render = _q_workflow()
+    if args.command == "prepare":
+        config_path = _config(args.config); _, _, _, _, load_config, prepare, _ = _q_workflow()
+        print(prepare(load_config(config_path), config_path.parent, args.out, args.time, args.force)); return 0
+    if args.command == "freeze":
+        _, _, _, freeze, _, _, _ = _q_workflow(); print(freeze(_config(args.scene), args.out)); return 0
+    if args.command == "batch":
+        config_path = _config(args.config); batch, _, _, _, load_config, _, _ = _q_workflow(); config = load_config(config_path)
+        if config.get("kind") != "q": raise ValueError("`pypost batch` currently supports frozen Q YAML (kind: q); use `pypost curve compare` for 1-D.")
+        failures = batch(config_path, config, config_path.parent, args.resume, args.dry_run)
+        if failures: print(f"Failed times: {failures}"); return 1
+        return 0
+    batch, camera_editor, extract, freeze, load_config, prepare, render = _q_workflow()
     config_path = _config(args.config); config = load_config(config_path); base = config_path.parent
     if args.q_command == "extract": print(extract(config, base, args.time, args.force)); return 0
     if args.q_command == "camera": camera_editor(config, base, args.time); return 0

@@ -13,6 +13,24 @@ pypost q camera --config configs/examples/q_surface.yml
 pypost q render --config configs/examples/q_surface.yml --time 60.5
 ```
 
+## Portable Q Prepare / Edit / Freeze
+
+For a cluster-to-workstation Q workflow, create a lightweight preview package,
+edit only its presentation state on a desktop, then freeze reproducible final
+YAML that renders from full-resolution data:
+
+```bash
+pypost prepare q.yml --time 60.5 --out preview
+pypost edit preview/scene.yml       # desktop session; press P to save view.json
+pypost freeze preview/scene.yml --out final.yml
+pypost plot final.yml               # full-resolution off-screen render
+pypost batch final.yml --resume
+```
+
+`preview.vtp` is never a final scientific source. See the bilingual
+[Prepare/Edit/Freeze tutorial](docs/tutorials/q-prepare-edit-freeze.md) and
+the self-contained [Q demo](sciplot/demos/q_demo/README.md).
+
 ## Bundled demos and environment checks
 
 The official demos are self-contained: they do not read `pypost_examples/` or

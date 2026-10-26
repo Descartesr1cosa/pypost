@@ -6,10 +6,12 @@ in metadata because it need not equal an OpenFOAM solver's discretized gradient.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 from typing import Any
+from copy import deepcopy
 
 import numpy as np
 
@@ -32,6 +34,34 @@ def _path(value: str | Path, base: Path, time: float | None = None) -> Path:
         value = value.format(time=time)
     result = Path(value)
     return result if result.is_absolute() else base / result
+
+
+VIEW_FORMAT = "pypost-q-view"
+VIEW_VERSION = 1
+
+
+def _data_base(config: dict[str, Any], base: Path) -> Path:
+    """Return the optional, portable root for full scientific data.
+
+    Preview packages keep presentation files beside one another, while their
+    full-resolution data commonly remains on a cluster filesystem.  A relative
+    ``data_root`` is deliberately resolved from the YAML file and may be
+    changed after transfer without touching the presentation state.
+    """
+    value = config.get("data_root")
+    if not value:
+        return base
+    expanded = os.path.expandvars(str(value))
+    return _path(expanded, base)
+
+
+def _data_path(value: str | Path, config: dict[str, Any], base: Path, time: float | None = None) -> Path:
+    return _path(value, _data_base(config, base), time)
+
+
+def _relative(path: Path, parent: Path) -> str:
+    """A manifest/config reference that remains relative and editable."""
+    return os.path.relpath(Path(path).resolve(), Path(parent).resolve())
 
 
 def _iter_datasets(mesh, prefix: str = ""):
@@ -81,8 +111,8 @@ def _time_index_source(config: dict[str, Any], base: Path, time: float | None) -
     if not index_value:
         if not path_value:
             raise ValueError("q extract requires input.path, input.time_index, or input.surface")
-        return _path(path_value, base, time), time
-    index_path = _path(index_value, base)
+        return _data_path(path_value, config, base, time), time
+    index_path = _data_path(index_value, config, base)
     index = Data3D.load_time_index(index_path)
     requested = time if time is not None else input_cfg.get("time")
     if requested is None:
@@ -111,18 +141,18 @@ def _array_location(mesh, name: str, requested: str | None = None) -> str:
 
 def surface_input(config: dict[str, Any], base: Path, time: float | None = None) -> Path | None:
     source = config.get("input", {}).get("surface")
-    return _path(source, base, time) if source else None
+    return _data_path(source, config, base, time) if source else None
 
 
 def surface_path(config: dict[str, Any], base: Path, time: float | None = None) -> Path:
     output = config.get("output", {}).get("surface")
     if output:
-        return _path(output, base, time)
+        return _data_path(output, config, base, time)
     input_cfg = config.get("input", {})
     if not input_cfg.get("path") and not input_cfg.get("time_index"):
         raise ValueError("q extract requires input.path or input.surface")
     stamp = "" if time is None else f"_t{time:.6f}"
-    return _path(f"q_surface{stamp}.vtp", base)
+    return _data_path(f"q_surface{stamp}.vtp", config, base)
 
 
 def processing_fingerprint(config: dict[str, Any], source: Path, time: float | None) -> str:
@@ -217,6 +247,187 @@ def save_camera(plotter, path: str | Path) -> Path:
     return path
 
 
+def _default_camera() -> dict[str, Any]:
+    return {"position": [1.0, 1.0, 1.0], "focal_point": [0.0, 0.0, 0.0],
+            "viewup": [0.0, 0.0, 1.0], "parallel_projection": False,
+            "parallel_scale": 1.0, "view_angle": 30.0}
+
+
+def _camera_value(value: Any, base: Path, time: float | None = None) -> dict[str, Any]:
+    if isinstance(value, dict):
+        missing = {"position", "focal_point", "viewup", "parallel_projection", "parallel_scale", "view_angle"} - value.keys()
+        if missing:
+            raise ValueError(f"Camera is missing: {sorted(missing)}")
+        return deepcopy(value)
+    if value:
+        return camera_from_file(_path(value, base, time))
+    return _default_camera()
+
+
+def _view_path(config: dict[str, Any], base: Path) -> Path | None:
+    value = config.get("view") or config.get("presentation", {}).get("view")
+    return _path(value, base) if value else None
+
+
+def load_view(path: str | Path) -> dict[str, Any]:
+    """Load only versioned, declarative Q presentation state."""
+    path = Path(path)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid Q view JSON: {path}") from exc
+    if value.get("format") != VIEW_FORMAT or value.get("version") != VIEW_VERSION:
+        raise ValueError(f"Unsupported Q view format in {path}; expected {VIEW_FORMAT} v{VIEW_VERSION}")
+    if not isinstance(value.get("camera"), dict) or not isinstance(value.get("scene", {}), dict):
+        raise ValueError(f"Q view {path} needs object-valued camera and scene")
+    _camera_value(value["camera"], path.parent)
+    return value
+
+
+def write_view(path: str | Path, camera: dict[str, Any], scene: dict[str, Any]) -> Path:
+    """Persist portable visual state, never mesh/data paths or VTK objects."""
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    _camera_value(camera, path.parent)
+    payload = {"format": VIEW_FORMAT, "version": VIEW_VERSION,
+               "camera": camera, "scene": scene}
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _presentation(config: dict[str, Any], base: Path, time: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Merge a view overlay into declarative scene defaults without data work."""
+    scene = deepcopy(config.get("scene", {}))
+    camera = _camera_value(config.get("camera", scene.pop("camera", None)), base, time)
+    view_path = _view_path(config, base)
+    if view_path and view_path.is_file():
+        view = load_view(view_path)
+        scene.update(deepcopy(view.get("scene", {})))
+        camera = deepcopy(view["camera"])
+    return scene, camera
+
+
+def _write_yaml(path: Path, value: dict[str, Any]) -> Path:
+    import yaml
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(value, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def _preview_surface(config: dict[str, Any], base: Path) -> Path | None:
+    value = config.get("preview", {}).get("surface")
+    return _path(value, base) if value else None
+
+
+def _decimate_preview(surface, options: dict[str, Any]):
+    """Return a separate, display-only copy while retaining scalar arrays."""
+    maximum = options.get("max_points")
+    target_mb = options.get("target_size_mb")
+    if maximum is None and target_mb is not None:
+        # Geometry byte size scales approximately with points for a surface.
+        maximum = max(100, int(surface.n_points * float(target_mb) * 1024 * 1024 / max(surface.n_points * 48, 1)))
+    maximum = int(maximum) if maximum is not None else 100_000
+    if surface.n_points <= maximum:
+        return surface.copy(deep=True), {"method": "copy", "max_points": maximum, "input_points": int(surface.n_points), "output_points": int(surface.n_points)}
+    reduction = max(0.0, min(0.99, 1.0 - maximum / float(surface.n_points)))
+    try:
+        preview = surface.decimate_pro(reduction, preserve_topology=True)
+    except TypeError:  # PyVista versions differ in their optional arguments.
+        preview = surface.decimate_pro(reduction)
+    return preview, {"method": "vtk.decimate_pro", "max_points": maximum, "reduction": reduction,
+                     "input_points": int(surface.n_points), "output_points": int(preview.n_points)}
+
+
+def prepare(config: dict[str, Any], base: str | Path = ".", out: str | Path = "preview",
+            time: float | None = None, force: bool = False) -> Path:
+    """Create a movable desktop preview package from full Q data.
+
+    The package deliberately contains only simplified geometry and presentation
+    state.  Its scene stores a relative ``data_root`` mapping back to the
+    full-resolution derived surface, so a later Freeze never renders preview
+    geometry as scientific output.
+    """
+    import pyvista as pv
+    base = Path(base); out = Path(out)
+    if not out.is_absolute(): out = base / out
+    time = time if time is not None else config.get("time")
+    full_surface = surface_input(config, base, time) or extract(config, base, time, force=force)
+    full_surface = Path(full_surface)
+    if not full_surface.is_file():
+        raise FileNotFoundError(f"Full Q surface not found: {full_surface}")
+    out.mkdir(parents=True, exist_ok=True)
+    preview, strategy = _decimate_preview(pv.read(full_surface), config.get("preview", {}))
+    color_field = config.get("scene", {}).get("color_field", config.get("scene", {}).get("scalars", "speed"))
+    if color_field not in preview.point_data and color_field not in preview.cell_data:
+        raise KeyError(f"Preview surface lacks required coloring field {color_field!r}")
+    preview_path = out / "preview.vtp"; preview.save(preview_path, binary=True)
+    source_root = full_surface.parent.resolve()
+    scene_config = {
+        "kind": "q", "workflow": "prepare-edit-freeze-v1",
+        "data_root": _relative(source_root, out),
+        "input": {"surface": full_surface.name},
+        "time": time, "processing": deepcopy(config.get("processing", {})),
+        "derived": {"surface": full_surface.name,
+                    "fingerprint": (read_record(full_surface) or {}).get("fingerprint")},
+        "scene": deepcopy(config.get("scene", {})),
+        "output": {"image": "render.png"}, "preview": {"surface": "preview.vtp", "strategy": strategy},
+        "view": "view.json",
+    }
+    camera = _camera_value(config.get("camera", config.get("scene", {}).get("camera")), base, time)
+    write_view(out / "view.json", camera, scene_config["scene"])
+    _write_yaml(out / "scene.yml", scene_config)
+    dependency = vtk_dependency_signature(full_surface) if full_surface.suffix.lower() == ".vtm" else file_signature(full_surface)
+    manifest = {"format": "pypost-preview-package", "format_version": 1,
+                "data_protocol_version": FORMAT_VERSION, "physical_time": time,
+                "full_data": {"kind": "derived-q-surface", "path": _relative(full_surface, out), "signature": dependency},
+                "preview_data": {"path": "preview.vtp", "strategy": strategy, "signature": file_signature(preview_path)},
+                "presentation": {"scene": "scene.yml", "view": "view.json"},
+                "software": {"python": sys.version.split()[0], "pypost_format_version": FORMAT_VERSION}}
+    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return out
+
+
+def freeze(scene_path: str | Path, out: str | Path) -> Path:
+    """Merge scene defaults and a view overlay into portable final Q YAML."""
+    scene_path = Path(scene_path); base = scene_path.parent
+    config = load_config(scene_path)
+    if config.get("kind") != "q":
+        raise ValueError("freeze expects a Q preview scene with kind: q")
+    full_surface = surface_input(config, base, config.get("time"))
+    if not full_surface or not full_surface.is_file():
+        raise FileNotFoundError("Freeze cannot find the full-resolution input.surface; set data_root or restore the data dependency.")
+    preview = _preview_surface(config, base)
+    if preview and full_surface.resolve() == preview.resolve():
+        raise ValueError("Refusing to freeze preview.vtp as final scientific source")
+    # Q extraction options are physical/derived-data state, not presentation
+    # state.  A changed threshold must be Prepared again instead of producing
+    # a misleading final YAML over a stale surface.
+    record = read_record(full_surface) or {}
+    expected_iso = config.get("processing", {}).get("iso", config.get("processing", {}).get("q_iso"))
+    if expected_iso is not None and record.get("iso") is not None and float(expected_iso) != float(record["iso"]):
+        raise ValueError("Q threshold differs from the prepared full surface; update the source Q configuration and run `pypost prepare` again.")
+    expected_fingerprint = config.get("derived", {}).get("fingerprint")
+    if expected_fingerprint and record.get("fingerprint") and expected_fingerprint != record["fingerprint"]:
+        raise ValueError("The prepared full Q surface changed; run `pypost prepare` again before Freeze.")
+    view_path = _view_path(config, base)
+    if not view_path or not view_path.is_file():
+        raise FileNotFoundError("Freeze needs view.json; run prepare or restore the presentation state first.")
+    view = load_view(view_path)
+    target = Path(out)
+    if not target.is_absolute(): target = Path.cwd() / target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    final = deepcopy(config)
+    final.pop("preview", None); final.pop("view", None); final.pop("derived", None)
+    final["workflow"] = "q-final-v1"
+    final["scene"].update(deepcopy(view["scene"]))
+    final["camera"] = deepcopy(view["camera"])
+    # Rebase relative data mapping for the new final.yml location.  No desktop
+    # absolute path leaks into the frozen configuration.
+    final["data_root"] = _relative(full_surface.parent, target.parent)
+    final["input"] = {"surface": full_surface.name}
+    _write_yaml(target, final)
+    return target
+
+
 def add_scene(plotter, surface, scene: dict[str, Any], time: float | None = None) -> None:
     import pyvista as pv
     plotter.set_background(scene.get("background", "white"))
@@ -237,9 +448,10 @@ def add_scene(plotter, surface, scene: dict[str, Any], time: float | None = None
                          font_size=int(scene.get("font_size", 14)), color=scene.get("text_color", "black"))
 
 
-def render_fingerprint(surface: Path, camera_path: Path, scene: dict[str, Any], time: float | None) -> str:
+def render_fingerprint(surface: Path, camera_path: Path | dict[str, Any], scene: dict[str, Any], time: float | None) -> str:
     """Fingerprint presentation inputs independently from Q extraction inputs."""
-    return fingerprint({"surface": file_signature(surface), "camera": file_signature(camera_path), "scene": scene,
+    camera = file_signature(camera_path) if isinstance(camera_path, Path) else camera_path
+    return fingerprint({"surface": file_signature(surface), "camera": camera, "scene": scene,
                         "time": time, "image_size": scene.get("image_size", [1280, 720])})
 
 
@@ -247,10 +459,9 @@ def render(config: dict[str, Any], base: str | Path = ".", time: float | None = 
     from .plotting import Plot3D
     base = Path(base); time = time if time is not None else config.get("time")
     surface = surface_input(config, base, time) or extract(config, base, time)
-    camera_path = _path(config.get("camera", config.get("scene", {}).get("camera", "camera.json")), base, time)
+    scene, camera = _presentation(config, base, time)
     output = _path(config.get("output", {}).get("image", "q.png"), base, time)
-    scene = config.get("scene", {})
-    key = render_fingerprint(surface, camera_path, scene, time)
+    key = render_fingerprint(surface, camera, scene, time)
     if resume and output.is_file() and (read_record(output) or {}).get("fingerprint") == key:
         return output
     if not Plot3D.offscreen_available():
@@ -260,31 +471,72 @@ def render(config: dict[str, Any], base: str | Path = ".", time: float | None = 
     plotter = pv.Plotter(off_screen=True, window_size=tuple(scene.get("image_size", [1280, 720])))
     try:
         add_scene(plotter, pv.read(surface), scene, time)
-        apply_camera(plotter, camera_from_file(camera_path))
+        apply_camera(plotter, camera)
         plotter.screenshot(output)
     finally:
         plotter.close()
     write_record(output, {"kind": "q-render", "format_version": FORMAT_VERSION, "fingerprint": key,
-                          "surface": file_signature(surface), "camera": file_signature(camera_path), "scene": scene, "time": time})
+                          "surface": file_signature(surface), "camera": camera, "scene": scene, "time": time})
     return output
 
 
 def camera_editor(config: dict[str, Any], base: str | Path = ".", time: float | None = None) -> None:
-    """Open a desktop editor; press P to persist the full camera state."""
+    """Open a small native Q editor; it persists visual state, never data."""
     import pyvista as pv
     base = Path(base); time = time if time is not None else config.get("time")
-    surface = surface_input(config, base, time) or extract(config, base, time)
-    target = _path(config.get("camera", "camera.json"), base, time)
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise RuntimeError("`pypost edit` for Q scenes requires a graphical DISPLAY. Use `pypost prepare` and edit view.json/YAML on a desktop.")
+    # A prepared scene intentionally opens its local simplified geometry.  The
+    # legacy camera command continues to use the full surface.
+    surface = _preview_surface(config, base) or surface_input(config, base, time) or extract(config, base, time)
+    target = _view_path(config, base)
+    legacy_camera = target is None
+    if target is None:
+        target = _path(config.get("camera", "camera.json"), base, time)
+    scene, camera = _presentation(config, base, time)
     plotter = pv.Plotter(off_screen=False, window_size=tuple(config.get("scene", {}).get("image_size", [1280, 720])))
-    add_scene(plotter, pv.read(surface), config.get("scene", {}), time)
-    if target.is_file(): apply_camera(plotter, camera_from_file(target))
-    plotter.add_key_event("p", lambda: save_camera(plotter, target))
-    print("Mouse: rotate/pan/zoom; press P to save camera.")
+    add_scene(plotter, pv.read(surface), scene, time)
+    apply_camera(plotter, camera)
+
+    def persist():
+        saved = save_camera(plotter, target) if legacy_camera else write_view(target, camera_from_plotter(plotter), scene)
+        print(f"Saved presentation state: {saved}")
+
+    # Native mouse controls perform rotate/pan/zoom.  The keys provide a small
+    # dependency-free control surface; less common text/size controls remain
+    # declarative YAML edits as documented.
+    colormaps = ["coolwarm", "viridis", "plasma", "turbo"]
+    def cycle_colormap():
+        current = scene.get("colormap", "coolwarm")
+        scene["colormap"] = colormaps[(colormaps.index(current) + 1) % len(colormaps)] if current in colormaps else colormaps[0]
+        print(f"colormap: {scene['colormap']} (press P to save)")
+    def toggle_background():
+        scene["background"] = "black" if scene.get("background", "white") == "white" else "white"
+        plotter.set_background(scene["background"]); plotter.render()
+    def opacity(delta: float):
+        scene["opacity"] = min(1.0, max(0.05, float(scene.get("opacity", 1.0)) + delta))
+        print(f"opacity: {scene['opacity']:.2f} (press P to save)")
+    def scalar_bar():
+        scene["scalar_bar"] = not bool(scene.get("scalar_bar", True))
+        print(f"scalar bar on next reopen/render: {scene['scalar_bar']} (press P to save)")
+    plotter.add_key_event("p", persist); plotter.add_key_event("m", cycle_colormap)
+    plotter.add_key_event("b", toggle_background); plotter.add_key_event("plus", lambda: opacity(.05))
+    plotter.add_key_event("minus", lambda: opacity(-.05)); plotter.add_key_event("s", scalar_bar)
+    print("Mouse: rotate/pan/zoom. P: save; M: colormap; B: background; +/-: opacity; S: scalar-bar state.")
     plotter.show()
+
+
+def camera_from_plotter(plotter) -> dict[str, Any]:
+    camera = plotter.camera
+    return {"position": list(map(float, camera.position)), "focal_point": list(map(float, camera.focal_point)),
+            "viewup": list(map(float, camera.up)), "parallel_projection": bool(camera.parallel_projection),
+            "parallel_scale": float(camera.parallel_scale), "view_angle": float(camera.view_angle)}
 
 
 def batch(config_path: Path, config: dict[str, Any], base: Path, resume: bool, dry_run: bool) -> list[float]:
     times = config.get("times", config.get("processing", {}).get("times", []))
+    if not times and config.get("kind") == "q" and config.get("time") is not None:
+        times = [config["time"]]
     if not times:
         raise ValueError("q batch needs a `times: [..]` list (or processing.times)")
     numeric_times = [float(value) for value in times]
