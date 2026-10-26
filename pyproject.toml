@@ -9,6 +9,9 @@ description = "Small, script-driven scientific plotting helpers for CFD data"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "pandas>=2.1", "matplotlib>=3.8", "scipy>=1.11", "pyvista>=0.43", "vtk>=9.2", "PyYAML>=6.0"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 pypost = "sciplot.cli:main"
 
@@ -16,7 +19,7 @@ pypost = "sciplot.cli:main"
 include = ["sciplot*"]
 
 [tool.setuptools.package-data]
-sciplot = ["py.typed"]
+sciplot = ["py.typed", "demos/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

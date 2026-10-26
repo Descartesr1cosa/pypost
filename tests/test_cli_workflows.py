@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -69,6 +70,25 @@ def test_q_extract_can_compute_vtk_q_from_synthetic_velocity(tmp_path):
     record = json.loads((tmp_path / "computed.vtp.pypost.json").read_text())
     assert pv.read(result).n_points > 0
     assert record["algorithm"].startswith("vtk.compute_derivative")
+    assert record["velocity_input_location"] == "point"
+    assert record["velocity_cell_to_point"] is False
+    assert record["gradient_algorithm"] == "vtk.compute_derivative(qcriterion)"
+
+
+def test_q_record_marks_cell_velocity_interpolation(tmp_path):
+    mesh = pv.ImageData(dimensions=(6, 6, 6), spacing=(.2, .2, .2))
+    x, y, z = mesh.cell_centers().points.T
+    mesh.cell_data["U"] = np.c_[-y * (1 + z), x * (1 + z), np.zeros_like(z)]
+    point_mesh = mesh.cell_data_to_point_data(pass_cell_data=True)
+    probe = point_mesh.compute_derivative(scalars="U", gradient=False, qcriterion="Q", preference="point")
+    values = np.asarray(probe.point_data["Q"])
+    source = tmp_path / "cell_velocity.vti"; mesh.save(source)
+    config = {"input": {"path": str(source)}, "processing": {"velocity_field": "U", "velocity_location": "cell", "q_field": "Q", "iso": float((values.min() + values.max()) / 2)},
+              "output": {"surface": str(tmp_path / "cell_velocity.vtp")}}
+    extract(config)
+    record = json.loads((tmp_path / "cell_velocity.vtp.pypost.json").read_text())
+    assert record["velocity_input_location"] == "cell"
+    assert record["velocity_cell_to_point"] is True
 
 
 def test_q_for_rigid_rotation_matches_analytic_q_one():
@@ -130,6 +150,47 @@ def test_3d_time_index_keeps_explicit_sorted_times(tmp_path):
     path = tmp_path / "times.json"
     Data3D.save_time_index(path, [{"time": 2, "path": "two.vtu"}, {"time": 1, "path": "one.vtu"}])
     assert [step["time"] for step in Data3D.load_time_index(path)["steps"]] == [1.0, 2.0]
+
+
+def test_time_index_paths_remain_valid_after_moving_directory(tmp_path):
+    original = tmp_path / "original"; original.mkdir()
+    mesh = pv.ImageData(dimensions=(3, 3, 3)); mesh.point_data["Q"] = np.arange(mesh.n_points)
+    volume = original / "step.vti"; mesh.save(volume)
+    index = original / "times.json"; Data3D.save_time_index(index, [{"time": 1.0, "path": volume}])
+    assert Data3D.load_time_index(index)["steps"][0]["path"] == "step.vti"
+    moved = tmp_path / "moved"; original.rename(moved)
+    config = {"input": {"time_index": str(moved / "times.json")}, "processing": {"q_field": "Q", "location": "point", "iso": 5},
+              "output": {"surface": str(moved / "surface.vtp")}}
+    assert extract(config, time=1.0).is_file()
+
+
+def test_convert_series_forwards_each_item_time(monkeypatch, tmp_path):
+    from sciplot import cli
+    seen = []
+    class FakeData:
+        metadata = {}
+    monkeypatch.setattr(cli, "load_data", lambda spec: seen.append(dict(spec)) or FakeData())
+    monkeypatch.setattr(cli, "save_data", lambda data, path: None)
+    config = tmp_path / "series.yml"
+    config.write_text("input: {dimension: 3}\nseries:\n  - time: 1.0\n    input: {path: same.foam}\n    output: one.vtu\n  - time: 2.0\n    input: {path: same.foam}\n    output: two.vtu\noutput: {index: times.json}\n")
+    assert cli.main(["convert", "--config", str(config)]) == 0
+    assert [spec["time"] for spec in seen] == [1.0, 2.0]
+    assert all(spec["path"].name == "same.foam" for spec in seen)
+
+
+def test_openfoam_reader_receives_requested_time(monkeypatch, tmp_path):
+    import pyvista as pv
+    received = []
+    class FakeReader:
+        time_values = [1.0, 2.0]
+        def __init__(self, path): self.path = path
+        def set_active_time_value(self, value): received.append(value)
+        def read(self): return pv.MultiBlock()
+    monkeypatch.setattr(pv, "OpenFOAMReader", FakeReader)
+    marker = tmp_path / "same.foam"; marker.touch()
+    Data3D.from_file(marker, time=1.0)
+    Data3D.from_file(marker, time=2.0)
+    assert received == [1.0, 2.0]
 
 
 def test_camera_json_round_trip(tmp_path):

@@ -82,7 +82,7 @@ applies the configured timeout, and writes `q_logs/` plus `q_manifest.json`.
 python3 -m venv .env
 . .env/bin/activate
 pip install -r requirements.txt
-pip install -e .
+pip install -e '.[dev]'  # runtime package plus pytest for local/CI tests
 ```
 
 ## 直接作图

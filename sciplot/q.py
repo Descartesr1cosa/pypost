@@ -128,6 +128,7 @@ def surface_path(config: dict[str, Any], base: Path, time: float | None = None) 
 def processing_fingerprint(config: dict[str, Any], source: Path, time: float | None) -> str:
     signature = vtk_dependency_signature(source) if source.suffix.lower() == ".vtm" else file_signature(source)
     return fingerprint({"format_version": FORMAT_VERSION, "source": signature, "time": time,
+                        "q_algorithm": "vtk.compute_derivative(qcriterion)",
                         "processing": config.get("processing", {}), "input": config.get("input", {})})
 
 
@@ -150,21 +151,27 @@ def extract(config: dict[str, Any], base: str | Path = ".", time: float | None =
     proc = config["processing"]
     q_name = proc.get("q_field", "Q")
     location = _array_location(mesh, q_name, proc.get("location")) if q_name in mesh.array_names else None
+    q_input_location = location
+    q_cell_to_point = False
+    velocity = proc.get("velocity_field", "U")
+    velocity_input_location = None
+    velocity_cell_to_point = False
     algorithm = "input-field"
     if location == "cell":
         mesh = mesh.cell_data_to_point_data(pass_cell_data=True)
         location = "point"
+        q_cell_to_point = True
         algorithm = "input-field-cell-to-point-for-contour"
     if location is None:
-        velocity = proc.get("velocity_field", "U")
         velocity_location = _array_location(mesh, velocity, proc.get("velocity_location"))
+        velocity_input_location = velocity_location
         if velocity_location == "cell":
             mesh = mesh.cell_data_to_point_data(pass_cell_data=True)
+            velocity_cell_to_point = True
         if velocity not in mesh.point_data:
             raise ValueError(f"Cannot compute Q: point velocity {velocity!r} unavailable after conversion")
         mesh = mesh.compute_derivative(scalars=velocity, gradient=False, qcriterion=q_name, preference="point")
         algorithm = "vtk.compute_derivative(qcriterion); velocity gradient may differ from OpenFOAM discretization"
-    velocity = proc.get("velocity_field", "U")
     if velocity in mesh.point_data and proc.get("speed_field", "speed") not in mesh.point_data:
         mesh.point_data[proc.get("speed_field", "speed")] = np.linalg.norm(np.asarray(mesh.point_data[velocity]), axis=1)
     iso = float(proc.get("iso", proc.get("q_iso", 0.0)))
@@ -175,7 +182,11 @@ def extract(config: dict[str, Any], base: str | Path = ".", time: float | None =
     surface.save(target, binary=True)
     write_record(target, {"kind": "q-surface", "format_version": FORMAT_VERSION, "fingerprint": key,
                           "source": vtk_dependency_signature(source) if source.suffix.lower() == ".vtm" else file_signature(source), "time": time, "q_field": q_name,
-                          "iso": iso, "algorithm": algorithm, "field_location": location})
+                          "iso": iso, "algorithm": algorithm, "field_location": location,
+                          "q_input_location": q_input_location, "q_cell_to_point": q_cell_to_point,
+                          "velocity_field": velocity, "velocity_input_location": velocity_input_location,
+                          "velocity_cell_to_point": velocity_cell_to_point,
+                          "gradient_algorithm": "vtk.compute_derivative(qcriterion)" if q_input_location is None else None})
     return target
 
 

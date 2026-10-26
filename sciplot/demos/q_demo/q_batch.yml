@@ -1,0 +1,18 @@
+# Demonstrates batch-safe names. Repeated time intentionally reuses the same
+# supplied surface, but every rendered image contains its physical time.
+input:
+  surface: Q_sample.vtp
+camera: camera.json
+times: [60.0, 60.5]
+scene:
+  image_size: [1280, 720]
+  color_field: speed
+  color_limits: [0.0, 1.5]
+  colormap: coolwarm
+output:
+  image: ../../../output/demos/q_t{time:.3f}.png
+batch:
+  retries: 1
+  timeout: 900
+  log_dir: ../../../output/demos/q_logs
+  manifest: ../../../output/demos/q_manifest.json

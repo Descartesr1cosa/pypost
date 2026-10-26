@@ -47,6 +47,40 @@ class Data3D:
                 metadata = {"metadata_warning": f"unreadable sidecar: {metadata_path}"}
         return cls(pv.read(path), str(path), time, metadata)
 
+    @classmethod
+    def validate_openfoam_case(cls, path: str | Path, time: float | None = None) -> dict:
+        """Read and verify the pieces needed for an OpenFOAM volume workflow.
+
+        This is deliberately an explicit validation operation: a case is only
+        reported valid after the requested time, ``internalMesh``, boundary
+        collection, and field shapes have all been observed from the reader.
+        """
+        import pyvista as pv
+        path = Path(path)
+        if path.suffix.lower() != ".foam":
+            raise ValueError("OpenFOAM validation requires a .foam marker file")
+        reader = pv.OpenFOAMReader(str(path))
+        times = [float(value) for value in reader.time_values]
+        selected = time if time is not None else (times[-1] if times else None)
+        if selected is None or selected not in times:
+            raise ValueError(f"Requested time {selected} unavailable; reader times: {times}")
+        reader.set_active_time_value(float(selected))
+        mesh = reader.read()
+        if not isinstance(mesh, pv.MultiBlock) or "internalMesh" not in mesh.keys():
+            names = list(mesh.keys()) if isinstance(mesh, pv.MultiBlock) else []
+            raise ValueError(f"OpenFOAM reader did not return internalMesh; blocks: {names}")
+        internal = mesh["internalMesh"]
+        boundary = mesh["boundary"] if "boundary" in mesh.keys() else None
+        fields = []
+        for item in cls(internal).field_info:
+            arrays = internal.point_data if item.location == "point" else internal.cell_data
+            fields.append({"name": item.name, "location": item.location, "components": item.components,
+                           "dtype": str(getattr(arrays[item.name], "dtype", "unknown"))})
+        return {"source": str(path), "available_times": times, "time": float(selected),
+                "internal_mesh": {"type": type(internal).__name__, "points": internal.n_points, "cells": internal.n_cells},
+                "boundary_patches": boundary.n_blocks if isinstance(boundary, pv.MultiBlock) else 0,
+                "fields": fields}
+
     @property
     def field_info(self) -> list[FieldInfo]:
         """List fields while retaining PointData/CellData distinction."""
@@ -93,11 +127,22 @@ class Data3D:
         index intentionally references files instead of collapsing grids into a
         synthetic ImageData volume.
         """
-        normalized = [{"time": float(step["time"]), "path": str(step["path"])} for step in steps]
+        target = Path(path).resolve()
+        normalized = []
+        for step in steps:
+            source = Path(step["path"])
+            if source.is_absolute():
+                try:
+                    source = source.resolve().relative_to(target.parent)
+                except ValueError:
+                    # External volumes remain explicit rather than producing a
+                    # misleading relative path that cannot be resolved later.
+                    source = source.resolve()
+            normalized.append({"time": float(step["time"]), "path": str(source)})
         if len({item["time"] for item in normalized}) != len(normalized):
             raise ValueError("Time-series index cannot contain duplicate times")
         normalized.sort(key=lambda item: item["time"])
-        target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps({"format": "pypost-3d-time-index", "format_version": 1,
                                       "steps": normalized, "metadata": metadata or {}}, ensure_ascii=False, indent=2) + "\n",
                           encoding="utf-8")

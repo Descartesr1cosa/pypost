@@ -1,6 +1,7 @@
 """``pypost`` command line interface."""
 from __future__ import annotations
 import argparse
+from copy import deepcopy
 from pathlib import Path
 from .curve import compare
 from .inspect import inspect_path
@@ -12,14 +13,15 @@ def _config(value: str): return Path(value).resolve()
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    """Return package-owned demo assets in both editable and wheel installs."""
+    return Path(__file__).resolve().parent
 
 
 def _demos() -> dict[str, tuple[str, Path]]:
     root = _project_root()
     return {
-        "curve-comparison": ("Self-contained synthetic three-curve comparison", root / "examples" / "assets" / "curve_demo" / "curve_comparison.yml"),
-        "q-surface": ("Supplied Q surface with reproducible camera and scene", root / "examples" / "assets" / "q_demo" / "q_surface.yml"),
+        "curve-comparison": ("Self-contained synthetic three-curve comparison", root / "demos" / "curve_demo" / "curve_comparison.yml"),
+        "q-surface": ("Supplied Q surface with reproducible camera and scene", root / "demos" / "q_demo" / "q_surface.yml"),
     }
 
 
@@ -69,8 +71,14 @@ def main(argv=None) -> int:
             return 0
         description, config_path = demos[args.name]
         if not config_path.is_file(): raise FileNotFoundError(f"Demo configuration missing: {config_path}")
-        if args.name == "curve-comparison": print(compare(read_yaml(config_path), config_path.parent)); return 0
-        config = load_config(config_path); print(render(config, config_path.parent, config.get("time"))); return 0
+        output_dir = Path.cwd() / "pypost-demo-output"
+        if args.name == "curve-comparison":
+            config = deepcopy(read_yaml(config_path))
+            config.setdefault("plot", {})["outputs"] = [str(output_dir / "curve_comparison.pdf"), str(output_dir / "curve_comparison.svg")]
+            print(compare(config, config_path.parent)); return 0
+        config = load_config(config_path)
+        config.setdefault("output", {})["image"] = str(output_dir / "q_surface.png")
+        print(render(config, config_path.parent, config.get("time"))); return 0
     if args.command == "convert":
         config_path = _config(args.config); config = read_yaml(config_path)
         if "series" in config:
@@ -78,6 +86,10 @@ def main(argv=None) -> int:
             steps = []
             for item in config["series"]:
                 spec = dict(config.get("input", {})); spec.update(item.get("input", item))
+                # A series item owns its physical time even when it has a
+                # nested input mapping; Data3D.from_file forwards this to an
+                # OpenFOAM reader rather than merely recording it in JSON.
+                spec["time"] = item["time"]
                 source = Path(spec["path"]); spec["path"] = source if source.is_absolute() else config_path.parent / source
                 if str(spec.get("dimension", "3")).lower().replace("d", "") != "3":
                     raise ValueError("convert.series currently supports only normalized 3-D VTK data")
