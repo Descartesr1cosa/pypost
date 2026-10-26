@@ -224,7 +224,7 @@ common controls.
 | `Cannot use a log ... axis` | Log axes require strictly positive values. Use `symlog` or inspect transformed values after scale/offset. |
 | `Cannot save figure` | Create the output directory or choose a writable `plot.outputs` path. |
 | `Interactive preview requires a graphical DISPLAY` | Remove `--show` on a headless server; normal export still works. |
-| ``pypost edit` requires a graphical DISPLAY` | Start the editor from a desktop session with Tk or Qt available; use `pypost plot` on a server. |
+| ``pypost edit`` reports no desktop backend | On Windows/macOS, check `python -m tkinter` or install PyQt6/PySide6; on Linux, also start from a DISPLAY/Wayland desktop session. Use `pypost plot` on a server. |
 
 Once you can replace CSV files, edit YAML, and export PDF/SVG/PNG reliably,
 there is no need to learn the library internals.
@@ -450,7 +450,7 @@ symlog 与局部 inset。先挑最像自己问题的一个文件，再替换 `pa
 | `Cannot use a log ... axis` | log 只能绘制严格正数；使用 `symlog`，或检查 scale/offset 后的数据。 |
 | `Cannot save figure` | 创建输出目录，或将 `plot.outputs` 改到有写权限的目录。 |
 | `Interactive preview requires a graphical DISPLAY` | 服务器没有桌面显示；移除 `--show`，直接导出文件。 |
-| ``pypost edit` requires a graphical DISPLAY` | 请在有桌面显示、并具备 Tk 或 Qt 的环境启动编辑器；服务器上用 `pypost plot`。 |
+| ``pypost edit`` 提示没有桌面后端 | Windows/macOS 请运行 `python -m tkinter` 检查 Tk，或安装 PyQt6/PySide6；Linux 还需从有 DISPLAY/Wayland 的桌面会话启动。服务器上使用 `pypost plot`。 |
 
 这一流程的完成标准很简单：只要能替换 CSV、修改 YAML，并稳定导出 PDF/SVG/PNG，
 就不需要学习库内部 API。

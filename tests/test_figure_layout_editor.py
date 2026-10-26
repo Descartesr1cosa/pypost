@@ -12,7 +12,8 @@ import pytest
 
 from sciplot.cli import main
 from sciplot.curve import build_figure, compare
-from sciplot.plotting.figure_editor import FigureEditor
+from sciplot.plotting import figure_editor
+from sciplot.plotting.figure_editor import FigureEditor, ensure_interactive_backend
 from sciplot.plotting.layout import apply_layout, capture_layout, load_layout, write_layout
 
 
@@ -91,5 +92,34 @@ def test_edit_reports_headless_requirement(tmp_path, monkeypatch):
     import yaml
     config_path = tmp_path / "plot.yml"; config_path.write_text(yaml.safe_dump(_config()))
     monkeypatch.delenv("DISPLAY", raising=False); monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
-    with pytest.raises(RuntimeError, match="requires a graphical DISPLAY"):
+    with pytest.raises(RuntimeError, match="requires a graphical desktop session"):
         main(["edit", str(config_path)])
+
+
+def test_windows_selects_tk_without_x11_display(monkeypatch):
+    """Windows must never depend on Linux's DISPLAY/WAYLAND variables."""
+    selected = []
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda matplotlib, candidate, probes: selected.append(candidate) or candidate == "TkAgg")
+    assert ensure_interactive_backend(platform="win32", environ={}) == "tkagg"
+    assert selected == ["TkAgg"]
+
+
+def test_macos_prefers_native_backend_without_x11_display(monkeypatch):
+    selected = []
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda matplotlib, candidate, probes: selected.append(candidate) or candidate == "MacOSX")
+    assert ensure_interactive_backend(platform="darwin", environ={}) == "macosx"
+    assert selected == ["MacOSX"]
+
+
+def test_linux_requires_display_before_attempting_gui_backend(monkeypatch):
+    attempted = []
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda *args: attempted.append(args) or True)
+    with pytest.raises(RuntimeError, match="DISPLAY or WAYLAND_DISPLAY"):
+        ensure_interactive_backend(platform="linux", environ={})
+    assert not attempted
+
+
+def test_backend_error_explains_tk_and_qt_remedies(monkeypatch):
+    monkeypatch.setattr(figure_editor, "_activate_backend", lambda *args: False)
+    with pytest.raises(RuntimeError, match="python -m tkinter.*PyQt6/PySide6"):
+        ensure_interactive_backend(platform="win32", environ={})

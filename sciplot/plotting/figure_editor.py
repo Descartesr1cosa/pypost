@@ -2,29 +2,94 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import importlib
 import os
 from pathlib import Path
+import sys
 from typing import Any
 
 from .layout import apply_layout, capture_layout, write_layout
 
 
-def ensure_interactive_backend() -> str:
-    """Select a desktop backend before pyplot is imported, or explain why not."""
-    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        raise RuntimeError("`pypost edit` requires a graphical DISPLAY. Use `pypost plot` to export on a headless system.")
+_NON_INTERACTIVE_BACKENDS = {"agg", "pdf", "svg", "ps", "template", "cairo"}
+
+
+def _has_desktop_session(platform: str, environ: dict[str, str]) -> bool:
+    """Check a display only where a display variable is meaningful.
+
+    Windows uses the native desktop session and macOS normally uses Aqua; they
+    do not advertise GUI availability through X11's ``DISPLAY`` variable.
+    Linux/BSD desktop backends, on the other hand, must not be selected on a
+    headless compute node merely because Tk happens to be installed.
+    """
+    if platform.startswith("win") or platform == "darwin":
+        return True
+    return bool(environ.get("DISPLAY") or environ.get("WAYLAND_DISPLAY"))
+
+
+def _backend_candidates(platform: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Candidates in native preference order, with import-only capability probes."""
+    standard = (("TkAgg", ("tkinter", "matplotlib.backends.backend_tkagg")),
+                ("QtAgg", ("PyQt6", "matplotlib.backends.backend_qtagg")),
+                ("QtAgg", ("PySide6", "matplotlib.backends.backend_qtagg")))
+    if platform == "darwin":
+        return (("MacOSX", ("matplotlib.backends.backend_macosx",)),) + standard
+    # Tk is shipped with most official Windows Python installers, avoiding a
+    # large Qt dependency for the small built-in editor.
+    return standard
+
+
+def _activate_backend(matplotlib, candidate: str, probes: tuple[str, ...]) -> bool:
+    """Probe and select a backend without importing ``matplotlib.pyplot``."""
+    try:
+        for probe in probes:
+            importlib.import_module(probe)
+        matplotlib.use(candidate, force=True)
+        return True
+    except (ImportError, ModuleNotFoundError, RuntimeError, ValueError):
+        return False
+
+
+def _gui_error(platform: str, headless: bool) -> RuntimeError:
+    if headless:
+        return RuntimeError(
+            "`pypost edit` requires a graphical desktop session on Linux (set DISPLAY or WAYLAND_DISPLAY). "
+            "Use `pypost plot` for headless PDF/SVG/PNG export."
+        )
+    system = "Windows" if platform.startswith("win") else "macOS" if platform == "darwin" else "this system"
+    return RuntimeError(
+        f"No usable Matplotlib desktop backend is available on {system}. "
+        "Check Tk with `python -m tkinter`, or install PyQt6/PySide6; then run `pypost edit` from a desktop session."
+    )
+
+
+def ensure_interactive_backend(*, platform: str | None = None, environ: dict[str, str] | None = None) -> str:
+    """Select a usable native desktop backend before importing pyplot.
+
+    Optional arguments exist solely for deterministic platform tests. Normal
+    callers use ``sys.platform`` and ``os.environ``.
+    """
+    platform = platform or sys.platform
+    environ = dict(os.environ if environ is None else environ)
+    if not _has_desktop_session(platform, environ):
+        raise _gui_error(platform, headless=True)
     import matplotlib
     backend = matplotlib.get_backend().lower()
-    if backend not in {"agg", "pdf", "svg", "ps", "template"}:
-        return backend
-    for candidate, probe in (("TkAgg", "tkinter"), ("QtAgg", "PyQt6"), ("QtAgg", "PySide6")):
-        try:
-            __import__(probe)
-            matplotlib.use(candidate, force=True)
+    if backend not in _NON_INTERACTIVE_BACKENDS:
+        # A configured interactive backend is not necessarily importable (for
+        # example a copied matplotlibrc may name QtAgg without Qt installed).
+        # Verify the common built-ins before accepting it.
+        known = {candidate.lower(): (candidate, probes) for candidate, probes in _backend_candidates(platform)}
+        if backend not in known:
+            return backend
+        candidate, probes = known[backend]
+        if _activate_backend(matplotlib, candidate, probes):
             return candidate.lower()
-        except (ImportError, RuntimeError):
-            continue
-    raise RuntimeError("No Matplotlib desktop backend is available. Install Tk or Qt, then run `pypost edit` from a graphical session.")
+        # Fall through and try the remaining supported native backends.
+    for candidate, probes in _backend_candidates(platform):
+        if _activate_backend(matplotlib, candidate, probes):
+            return candidate.lower()
+    raise _gui_error(platform, headless=False)
 
 
 class FigureEditor:
