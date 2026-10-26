@@ -1,0 +1,16 @@
+# Safe batch preflight for the supplied surface. Add `{time}` to output.image
+# before rendering a real time series so each result has a distinct filename.
+input:
+  surface: ../../examples/assets/q_demo/Q_sample.vtp
+camera: ../../examples/assets/q_demo/camera.json
+times: [60.5]
+scene:
+  color_field: speed
+  image_size: [1280, 720]
+output:
+  image: ../../output/q_sample_{time:.3f}.png
+batch:
+  retries: 1
+  timeout: 900
+  log_dir: ../../output/q_logs
+  manifest: ../../output/q_manifest.json

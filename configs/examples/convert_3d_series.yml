@@ -1,0 +1,13 @@
+# Each input is saved as its original VTK XML mesh type; the index only maps
+# physical time to output file. It does not interpolate or remesh the volume.
+input:
+  dimension: 3
+series:
+  - time: 60.0
+    input: {path: path/to/raw_60.vtu}
+    output: ../../output/volume_60.vtu
+  - time: 60.5
+    input: {path: path/to/raw_60_5.vtu}
+    output: ../../output/volume_60_5.vtu
+output:
+  index: ../../output/volume_times.json

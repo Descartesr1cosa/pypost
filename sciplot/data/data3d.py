@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Literal
+import json
 
 FieldLocation = Literal["point", "cell", "face", "edge"]
 
@@ -20,6 +22,7 @@ class Data3D:
     mesh: object
     source: str | None = None
     time: float | None = None
+    metadata: dict = field(default_factory=dict)
 
     @classmethod
     def from_file(cls, path: str | Path, time: float | None = None, patches: list[str] | None = None) -> "Data3D":
@@ -35,7 +38,14 @@ class Data3D:
                     reader.enable_patch_array(patch)
             mesh = reader.read()
             return cls(mesh, str(path), time)
-        return cls(pv.read(path), str(path), time)
+        metadata_path = path.with_suffix(path.suffix + ".pypost.json")
+        metadata = {}
+        if metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                metadata = {"metadata_warning": f"unreadable sidecar: {metadata_path}"}
+        return cls(pv.read(path), str(path), time, metadata)
 
     @property
     def field_info(self) -> list[FieldInfo]:
@@ -61,4 +71,40 @@ class Data3D:
 
     def save(self, path: str | Path) -> None:
         """Write VTK XML data (e.g. .vtu or .vtm) readable by ParaView."""
+        path = Path(path)
+        if path.suffix.lower() not in {".vtu", ".vts", ".vti", ".vtm", ".vtp"}:
+            raise ValueError("3-D normalized output must be VTK XML (.vtu/.vts/.vti/.vtm/.vtp)")
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.mesh.save(path)
+        record = {
+            "format": "pypost-3d", "format_version": 1, "source": self.source,
+            "physical_time": self.time, "fields": [info.__dict__ for info in self.field_info],
+            "metadata": self.metadata,
+        }
+        path.with_suffix(path.suffix + ".pypost.json").write_text(
+            json.dumps(record, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8"
+        )
+
+    @staticmethod
+    def save_time_index(path: str | Path, steps: list[dict], metadata: dict | None = None) -> None:
+        """Write the portable index used for normalized multi-time VTK data.
+
+        Each step has an explicit physical ``time`` and VTK XML ``path``. The
+        index intentionally references files instead of collapsing grids into a
+        synthetic ImageData volume.
+        """
+        normalized = [{"time": float(step["time"]), "path": str(step["path"])} for step in steps]
+        if len({item["time"] for item in normalized}) != len(normalized):
+            raise ValueError("Time-series index cannot contain duplicate times")
+        normalized.sort(key=lambda item: item["time"])
+        target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"format": "pypost-3d-time-index", "format_version": 1,
+                                      "steps": normalized, "metadata": metadata or {}}, ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+
+    @staticmethod
+    def load_time_index(path: str | Path) -> dict:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if data.get("format") != "pypost-3d-time-index" or not isinstance(data.get("steps"), list):
+            raise ValueError(f"Not a pypost 3-D time index: {path}")
+        return data

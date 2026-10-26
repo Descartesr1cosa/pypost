@@ -1,0 +1,18 @@
+# Volume input version. The output name incorporates time to prevent collision.
+input:
+  path: path/to/normalized_volume.vtu
+processing:
+  velocity_field: U
+  velocity_location: point
+  q_field: Q
+  iso: 0.01
+output:
+  surface: ../../output/q_t{time:.3f}.vtp
+scene:
+  color_field: speed
+  image_size: [1280, 720]
+batch:
+  retries: 2
+  timeout: 900
+  log_dir: ../../output/q_logs
+  manifest: ../../output/q_manifest.json

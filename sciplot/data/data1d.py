@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
+import json
 import re
 import numpy as np
 import pandas as pd
@@ -70,13 +71,46 @@ class Data1D:
         x_name = frame.columns[0] if x is None else (frame.columns[x] if isinstance(x, int) else x)
         if x_name not in frame:
             raise KeyError(f"Coordinate {x_name!r} not in {list(frame.columns)}")
+        sidecar = path.with_suffix(path.suffix + ".json")
+        stored = {}
+        if sidecar.is_file():
+            try:
+                stored = json.loads(sidecar.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid 1-D metadata sidecar: {sidecar}") from exc
+        metadata = dict(stored.get("metadata", {}))
+        metadata["source"] = str(path)
+        combined_units = dict(stored.get("field_units", {}))
+        combined_units.update(units or {})
         return cls(frame[x_name].to_numpy(),
                    {str(c): frame[c].to_numpy() for c in frame.columns if c != x_name},
-                   x_name=str(x_name), field_units=dict(units or {}),
-                   metadata={"source": str(path)}, **kwargs)
+                   x_name=str(stored.get("x_name", x_name)),
+                   x_unit=stored.get("x_unit"), field_units=combined_units,
+                   metadata=metadata, **kwargs)
 
     def to_frame(self) -> pd.DataFrame:
         return pd.DataFrame({self.x_name: self.x, **self.fields})
 
-    def save_csv(self, path: str | Path) -> None:
+    def save_csv(self, path: str | Path, metadata: bool = True) -> None:
+        """Save the portable CSV representation and its optional JSON sidecar.
+
+        The CSV remains a plain table for spreadsheet interoperability.  Units,
+        provenance and normalization notes deliberately live beside it instead
+        of being hidden in a non-standard CSV dialect.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.to_frame().to_csv(path, index=False)
+        if metadata:
+            record = {
+                "format": "pypost-1d",
+                "format_version": 1,
+                "x_name": self.x_name,
+                "x_unit": self.x_unit,
+                "field_units": self.field_units,
+                "metadata": self.metadata,
+            }
+            path.with_suffix(path.suffix + ".json").write_text(
+                json.dumps(record, ensure_ascii=False, indent=2, default=str) + "\n",
+                encoding="utf-8",
+            )

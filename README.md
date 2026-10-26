@@ -1,4 +1,36 @@
-# sciplot
+# sciplot / pypost
+
+`sciplot` remains the Python package name. `pypost` is the command-line tool
+for reproducible CFD post-processing: convert raw data once, inspect the
+normalized output, then independently process and render it.
+
+```bash
+pypost convert --config configs/convert_1d.yml
+pypost inspect output/line_p.csv
+pypost curve compare --config configs/examples/compare_curves.yml
+pypost q extract --config configs/examples/q_extract.yml --time 60.5
+pypost q camera --config configs/examples/q_surface.yml
+pypost q render --config configs/examples/q_surface.yml --time 60.5
+```
+
+1-D normalized data is a CSV plus optional `.csv.json` sidecar for units and
+provenance.  3-D data stays in VTK XML (`.vtu`, `.vts`, `.vti`, `.vtm`); point
+and cell arrays are never silently merged. Q surfaces are `.vtp` files and do
+not represent their original volume fields.
+
+`configs/examples/q_surface.yml` uses the included `Q_sample.vtp`, saved
+camera, and scene configuration. It can be edited locally with `q camera`
+(mouse to adjust, **P** to save). Off-screen rendering requires a working
+DISPLAY, EGL, or OSMesa backend; the command reports this explicitly when one
+is unavailable. Q extraction records whether it used an input Q field or VTK's
+velocity-gradient calculation. Cache sidecars include input signatures and
+processing settings; render sidecars additionally include camera and scene
+settings, so visual changes re-render without recalculating the surface.
+
+For time-series work, use a `{time:.3f}` placeholder in surface/image output
+paths and put `times: [60.0, 60.5]` in the Q config. `pypost q batch --config
+... --resume` invokes each time step in a fresh subprocess, retries failures,
+applies the configured timeout, and writes `q_logs/` plus `q_manifest.json`.
 
 一个轻量、脚本驱动的 CFD 科研数据处理与绘图工具包。第一版重点是：1D/2D/3D 数据容器彼此独立，读取/转换、计算、绘图可单独运行；2D 不假定规则网格；3D 始终区分 PointData 和 CellData。
 

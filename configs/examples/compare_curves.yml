@@ -1,0 +1,26 @@
+# Standardized CSV comparison.  Paths are relative to this configuration file.
+datasets:
+  - path: ../../../pypost_examples/example1d_data/water_keel2_refined_coefficients.csv
+    x: t
+    y: Cd
+    label: refined
+    style: {color: C0, linewidth: 1.8}
+  - path: ../../../pypost_examples/example1d_data/water_keel2_medium_coefficients.csv
+    x: t
+    y: Cd
+    label: medium
+    style: {color: C1, linestyle: --, linewidth: 1.5}
+  - path: ../../../pypost_examples/example1d_data/water_keel2_morecoarse_coefficients.csv
+    x: t
+    y: Cd
+    label: coarse
+    style: {color: C2, linestyle: ':', linewidth: 1.5}
+plot:
+  output: ../../output/curve_comparison.png
+  figure: {size: [7.0, 4.0], dpi: 160}
+  axes:
+    xlabel: "$t$"
+    ylabel: "$C_d$"
+    legend: true
+    legend_loc: best
+    grid: true

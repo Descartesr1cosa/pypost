@@ -1,0 +1,19 @@
+# Existing lightweight Q surface: no volume data or Q computation required.
+input:
+  surface: ../../examples/assets/q_demo/Q_sample.vtp
+camera: ../../examples/assets/q_demo/camera.json
+scene:
+  image_size: [1280, 720]
+  background: white
+  color_field: speed
+  color_limits: [0.0, 1.5]
+  colormap: coolwarm
+  scalar_bar: true
+  show_sphere: true
+  sphere_center: [0.0, 0.0, 0.0]
+  sphere_radius: 0.5
+  time_label: true
+  time_format: "t* = {time:.3f}"
+output:
+  image: ../../output/q_sample.png
+time: 60.5
