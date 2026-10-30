@@ -6,3 +6,8 @@ build/
 dist/
 *.egg-info/
 output/
+
+# Large local artifacts from the Mercury -> Data3D integration converter.
+mercury-data3d-*/
+mercury_*.vtu
+*.vtu.partial

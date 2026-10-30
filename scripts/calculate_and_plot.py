@@ -5,6 +5,11 @@ Run: python scripts/calculate_and_plot.py configs/plot.yml
 """
 from __future__ import annotations
 import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 from sciplot import Plot1D, Plot2D, Plot3D
 from sciplot.workflow import apply_calculations, load_data, read_yaml, save_data
 

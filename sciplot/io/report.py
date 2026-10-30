@@ -14,6 +14,21 @@ from ..provenance import vtk_dependency_signature
 from .dataset import FORMAT, FORMAT_VERSION, VTK_SUFFIXES, _npz_header, _vtk_header, load_dataset
 
 
+def validate_data3d_v1(mesh, metadata: dict | None = None) -> list[str]:
+    """Return every Data3D v1 contract failure without modifying the mesh."""
+    from ..data.data3d_protocol import validate_v1_mesh
+    return validate_v1_mesh(mesh, metadata)
+
+
+def _sha256_file(path: Path, chunk_bytes: int = 8 * 1024 * 1024) -> str:
+    """Hash large datasets without creating a second file-sized byte buffer."""
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(chunk_bytes), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _stats(values) -> dict[str, Any]:
     array = np.asarray(values)
     result = {"shape": list(array.shape), "dtype": str(array.dtype),
@@ -31,6 +46,12 @@ def _encoding(path: Path) -> str:
     if path.suffix.lower() == ".npz": return "binary"
     if path.suffix.lower() in {".csv", ".txt", ".xy", ".dat"}: return "ascii"
     if path.suffix.lower() in VTK_SUFFIXES:
+        # Appended raw VTK XML deliberately contains arbitrary binary bytes and
+        # therefore cannot be parsed by ElementTree as a whole document.
+        with path.open("rb") as stream:
+            prefix = stream.read(1024 * 1024)
+        if b'<AppendedData encoding="raw">_' in prefix or b"<AppendedData encoding='raw'>_" in prefix:
+            return "binary"
         try:
             root = ElementTree.parse(path).getroot()
             formats = {item.attrib.get("format", "ascii") for item in root.iter() if item.tag.endswith("DataArray")}
@@ -72,6 +93,17 @@ def inspect_dataset(path: str | Path) -> dict[str, Any]:
     if isinstance(data, Data3D):
         result = _base(source, "3d", header or data.metadata)
         result.update(_mesh_report(data.mesh))
+        if data.is_data3d_v1:
+            descriptors = data.metadata.get("fields", {})
+            for item in result["fields"]:
+                if item["location"] == "point" and item["name"] in descriptors:
+                    item.update({key: descriptors[item["name"]].get(key) for key in ("kind", "unit", "description", "provenance")})
+            result.update({"physical_time": data.metadata.get("physical_time"),
+                           "time_unit": data.metadata.get("time_unit"),
+                           "coordinates": data.metadata.get("coordinates"),
+                           "source": data.metadata.get("source"),
+                           "node_identity": data.metadata.get("node_identity"),
+                           "cell_fields": data.metadata.get("cell_fields", {})})
         result["dependencies"] = vtk_dependency_signature(source)["dependencies"] if source.suffix.lower() == ".vtm" else []
         return result
     raise TypeError(type(data))
@@ -111,15 +143,18 @@ def validate_dataset(path: str | Path, deep: bool = False) -> dict[str, Any]:
             if field.get("inf", 0): issues.append(f"field {field['location']}:{field['name']} contains {field['inf']} Inf values")
         if isinstance(data, Data2D) and data.connectivity is not None:
             _validate_2d_connectivity(data, issues)
-        if isinstance(data, Data3D): _validate_mesh(data.mesh, issues)
+        if isinstance(data, Data3D):
+            _validate_mesh(data.mesh, issues)
+            if data.is_data3d_v1:
+                issues.extend(validate_data3d_v1(data.mesh, data.metadata))
         if source.suffix.lower() == ".vtm":
             try: vtk_dependency_signature(source)
             except Exception as exc: issues.append(f"VTM dependency failure: {exc}")
         checksums = None
         if deep:
-            checksums = {"sha256": sha256(source.read_bytes()).hexdigest()}
+            checksums = {"sha256": _sha256_file(source)}
             if source.suffix.lower() == ".vtm":
-                checksums["dependencies"] = {item["path"]: sha256(Path(item["path"]).read_bytes()).hexdigest()
+                checksums["dependencies"] = {item["path"]: _sha256_file(Path(item["path"]))
                                                 for item in vtk_dependency_signature(source)["dependencies"]}
         return {"valid": not issues, "path": str(source), "issues": issues, "report": report, "checksums": checksums}
     except Exception as exc:

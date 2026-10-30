@@ -76,6 +76,8 @@ def save_dataset(data, path: str | Path, encoding: str = "binary") -> Path:
         if target.suffix.lower() not in VTK_SUFFIXES:
             raise ValueError("Data3D standard storage requires VTK XML (.vtu/.vts/.vti/.vtm/.vtp)")
         data.save(target, binary=encoding == "binary")
+        if data.is_data3d_v1:
+            return target
         _write_vtk_header(target, _header("3d", encoding, data, _mesh_fields(data.mesh), source=data.source, time=data.time))
         return target
     raise TypeError(f"Unsupported standard dataset type: {type(data)!r}")
@@ -200,6 +202,19 @@ def load_dataset(path: str | Path):
 
 
 def _vtk_header(path: Path) -> dict[str, Any] | None:
+    # Data3D v1 is self-contained in VTK FieldData.  A sidecar is only a
+    # legacy compatibility annotation and must never override embedded data.
+    try:
+        from ..data.data3d_protocol import metadata_from_mesh
+        import pyvista as pv
+        embedded = metadata_from_mesh(pv.read(path))
+        if embedded is not None:
+            return embedded
+    except ImportError:
+        raise
+    except Exception:
+        # The normal VTK reader will report malformed XML more clearly later.
+        pass
     sidecar = path.with_suffix(path.suffix + ".pypost.json")
     if not sidecar.is_file(): return None
     try: return json.loads(sidecar.read_text(encoding="utf-8"))
