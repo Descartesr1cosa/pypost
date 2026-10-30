@@ -42,6 +42,12 @@ from sciplot.io import save_dataset
 save_dataset(profile, "x_profile.npz")
 ```
 
+Add `csv: path.csv` to a `lines:` entry to also write the same profile as a
+plain CSV table (`s,x,y,z,valid,<scalars>,<vector>_x/_y/_z`; invalid samples are
+empty NaN cells) plus a `path.csv.json` sidecar with units and provenance. Three-component
+vector columns are dropped from the CSV in favour of their `_x/_y/_z` columns.
+Or simply use a `.csv` suffix for `output`.
+
 The resulting components can be selected directly by existing 1-D plotting
 YAML, for example `B_induced_x`, `B_induced_y`, or `B_induced_z`.
 

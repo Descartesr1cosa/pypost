@@ -265,6 +265,13 @@ def sample_line(data: Data3D, *, start, end, n_points: int | None = None, spacin
     return Data1D(s, output, x_name="s", x_unit=data.metadata["coordinates"]["unit"], field_units=units, metadata=metadata, sort=False)
 
 
+def _scalar_columns(line: Data1D) -> Data1D:
+    """Spreadsheet view of a sampled line: vectors are kept as their ``*_x/_y/_z`` scalar columns."""
+    fields = {k: v for k, v in line.fields.items() if np.ndim(v) == 1}
+    units = {k: u for k, u in line.field_units.items() if k in fields}
+    return Data1D(line.x, fields, x_name=line.x_name, x_unit=line.x_unit, field_units=units, metadata=line.metadata, sort=False)
+
+
 def process_data3d_yaml(path: str | Path) -> dict[str, Path]:
     """Run the concise ``kind: data3d-process`` workflow once per input volume."""
     config_path = Path(path); config = read_yaml(config_path)
@@ -283,8 +290,16 @@ def process_data3d_yaml(path: str | Path) -> dict[str, Path]:
         spec = dict(item); name = spec.pop("name"); output = Path(spec.pop("output")); output = output if output.is_absolute() else config_path.parent / output
         result = extract_slice(data, derived=derived, **spec); result.save(output); outputs[name] = output
     for item in config.get("lines", []):
-        spec = dict(item); name = spec.pop("name"); output = Path(spec.pop("output")); output = output if output.is_absolute() else config_path.parent / output
+        spec = dict(item); name = spec.pop("name")
+        targets = [spec.pop("output")]
+        if "csv" in spec: targets.append(spec.pop("csv"))
         result = sample_line(data, derived=derived, **spec)
         from ..io import save_dataset
-        save_dataset(result, output); outputs[name] = output
+        for index, target in enumerate(targets):
+            target = Path(target); target = target if target.is_absolute() else config_path.parent / target
+            if target.suffix.lower() == ".csv":
+                save_dataset(_scalar_columns(result), target, encoding="ascii")
+            else:
+                save_dataset(result, target)
+            outputs[name if index == 0 else f"{name}.csv"] = target
     return outputs

@@ -55,3 +55,4 @@ lines:
     fields: [B_total, B_total_mag, H_number_density, H_temperature, dynamic_pressure, dynamic_pressure_nd, Pdyn_Pa,
              magnetic_pressure, Pmag_nPa_check]
     output: output/derived/x_profile.npz
+    csv: output/derived/x_profile.csv      # optional spreadsheet table (scalars + vector x/y/z columns, with .csv.json units sidecar)

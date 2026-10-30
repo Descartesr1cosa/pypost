@@ -109,3 +109,21 @@ def test_slice_and_line_outputs_carry_normalization():
     assert extract_slice(data, origin=[.5, .5, .5], normal=[0, 0, 1], fields=["f"]).metadata["normalization"] == {"pressure_ref": 4.0}
     line = sample_line(data, start=[0, .5, .5], end=[1, .5, .5], n_points=3, fields=["f"])
     assert line.metadata["normalization"] == {"pressure_ref": 4.0}
+
+
+def test_line_yaml_can_also_write_a_scalar_csv_table(tmp_path):
+    import yaml
+    from sciplot.processing import process_data3d_yaml
+    source = tmp_path / "volume.vtu"
+    _volume().save(source)
+    # re-save through the standard writer so the Data3D v1 metadata is embedded
+    from sciplot.io import save_dataset
+    save_dataset(_volume(), source)
+    config = tmp_path / "p.yml"
+    config.write_text(yaml.safe_dump({"kind": "data3d-process", "input": {"path": "volume.vtu"},
+        "lines": [{"name": "l", "start": [0, .5, .5], "end": [1, .5, .5], "n_points": 5, "fields": ["f", "V"],
+                   "output": "l.npz", "csv": "l.csv"}]}))
+    outputs = process_data3d_yaml(config)
+    table = (tmp_path / "l.csv").read_text().splitlines()
+    assert outputs["l.csv"] == tmp_path / "l.csv" and (tmp_path / "l.csv.json").is_file()
+    assert table[0].split(",") == ["s", "x", "y", "z", "valid", "f", "V_x", "V_y", "V_z"] and len(table) == 6
