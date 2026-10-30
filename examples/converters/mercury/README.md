@@ -18,7 +18,8 @@ python -m examples.converters.mercury --config mercury.yml
 Available templates:
 
 - `configs/b_only.example.yml` — `B_induced` only, for a small acceptance artifact.
-- `configs/all_fields.example.yml` — all currently confirmed H/Na/B fields.
+- `configs/all_fields.example.yml` — H/Na fields, induced/additive/total B,
+  DEC current, and all electric terms (Fluid-only output, see below).
 
 ```yaml
 kind: mercury-data3d
@@ -64,6 +65,40 @@ Prefer YAML for repeatable work. `--overwrite` is mandatory to replace a
 result. `--verify-readback` uses PyVista after writing and may require memory
 comparable to the final output. `--keep-temp` preserves memmaps and diagnostics
 for troubleshooting.
+
+## Fluid and Solid domains
+
+`U_H`/`U_Na` are undefined in Mercury Solid cells (no density), so the ion
+fields (`H_*`, `Na_*`) and every electric term (`E_motional`, `E_Hall`,
+`E_ambipolar`, `E_generalized`) are **Fluid-only**. Solid cells are never given
+zeros or NaNs for them. The optional top-level `region` key selects the output:
+
+- `auto` (default): `fluid` if any Fluid-only field is requested, else `all`.
+- `fluid` / `solid` / `all`: explicit; a Fluid-only field with `solid`/`all`
+  is rejected before any rank is read.
+
+`B_induced`, `B_additive`, `B_total` and `J_induced` exist in both domains.
+Output keeps only cells of the region and the nodes they use; nodal values use
+the solver's cell→node weights restricted to that region and renormalized.
+Every output value is checked finite before writing, and `PhysicsCode`
+(1=Fluid, 2=Solid) is stored per cell.
+
+## Electromagnetic fields
+
+All are computed from the MPCNS v3 files themselves; no external Mercury
+post-processing package is needed.
+
+- `B_induced`: restart face fluxes → `Bcell` operator. `B_additive`: static
+  `Badd_*` face constants through the same operator. `B_total` is their sum.
+- `J_induced`: v3 DEC chain `B-face (+raw ghost columns, Bstore) → J-edge →
+  J-cell`, from induced B only (as in the solver).
+- With `n_e = n_H + n_Na`, `u+ = (n_H u_H + n_Na u_Na)/n_e`, `p_e = p_H + p_Na`:
+  `E_motional = -u+ × B_total`, `E_Hall = J_induced × B_total/(e n_e)`,
+  `E_ambipolar = -∇p_e/(e n_e)` (blockwise curvilinear gradient on Fluid
+  blocks), `E_generalized` = sum. Output in mV/m; `J` in nA/m², `B` in nT.
+
+On the example case (84 ranks) all 14 fields convert in ~16 s with ~1.6 GB
+peak RSS and agree with the original `Postprocess` script to ≤2e-15 relative.
 
 The converter stops on missing owner maps, topology mismatches, duplicate owner
 IDs, alias inconsistencies, and degenerate polar hexahedra. It never merges

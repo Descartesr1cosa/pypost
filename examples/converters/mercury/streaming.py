@@ -17,7 +17,7 @@ from typing import Callable, Iterable
 import numpy as np
 
 
-_STATIC_TYPES = {"geometry": 1, "topology": 2, "reconstruction": 3}
+_STATIC_TYPES = {"geometry": 1, "topology": 2, "reconstruction": 3, "constant_field": 4}
 _DTYPES = {1: np.dtype("i1"), 2: np.dtype("u1"), 3: np.dtype("<i4"), 4: np.dtype("<u4"),
            5: np.dtype("<i8"), 6: np.dtype("<u8"), 7: np.dtype("<f8")}
 _HEADER = struct.Struct("<8sIIQQQQQQIIII")
@@ -114,6 +114,41 @@ def geometry(path: Path, manifest: dict) -> tuple[np.ndarray, np.ndarray, np.nda
     return values["node_global_id"].astype(np.int64, copy=False), values["node_xyz"], values["cell_global_id"].astype(np.int64, copy=False)
 
 
+def cell_geometry(path: Path, manifest: dict, *, centers: bool) -> dict[str, np.ndarray]:
+    """Read owner cell IDs with their physics flags and, optionally, centres."""
+    wanted = {"cell_global_id", "cell_flags"} | ({"cell_center_xyz"} if centers else set())
+    values = _sections(path, "geometry", manifest, lambda n: n in wanted)
+    count = values.get("cell_global_id", np.empty(0)).size
+    if wanted - values.keys() or values["cell_flags"].shape != (count,) or (centers and values["cell_center_xyz"].shape != (count, 3)):
+        raise ValueError(f"{path}: missing/invalid cell flag or centre sections")
+    values["cell_global_id"] = values["cell_global_id"].astype(np.int64, copy=False)
+    values["cell_flags"] = values["cell_flags"].astype(np.uint32, copy=False)
+    return values
+
+
+def constant_fields(path: Path, manifest: dict, names: set[str]) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Read selected manifest-described static constants, preserving global IDs."""
+    descriptors = {str(item["name"]): str(item["section_prefix"]) for item in manifest.get("fields", [])}
+    missing = names - descriptors.keys()
+    if missing:
+        raise ValueError(f"constant fields are absent from manifest: {sorted(missing)}")
+    prefixes = {descriptors[name] for name in names}
+    values = _sections(path, "constant_field", manifest,
+                       lambda key: any(key.startswith(prefix + "_") for prefix in prefixes))
+    result: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name in names:
+        prefix = descriptors[name]
+        try:
+            meta, gids, raw = values[prefix + "_meta"], values[prefix + "_ids"], values[prefix + "_values"]
+        except KeyError as exc:
+            raise ValueError(f"{path}: missing constant sections for {name}") from exc
+        meta = np.asarray(meta).reshape(-1)
+        if meta.size != 3 or int(meta[1]) != 1 or raw.shape != gids.shape or not np.all(np.isfinite(raw)):
+            raise ValueError(f"{path}: invalid constant field {name}")
+        result[name] = (np.asarray(gids, dtype=np.int64), np.asarray(raw, dtype=np.float64))
+    return result
+
+
 def topology_maps(path: Path, manifest: dict) -> list[LocalMap]:
     values = _sections(path, "topology", manifest, lambda n: n.startswith("b") and n.endswith(("_shape", "_gid", "_sign", "_owner")))
     groups: dict[str, dict[str, np.ndarray]] = {}
@@ -136,6 +171,34 @@ def topology_maps(path: Path, manifest: dict) -> list[LocalMap]:
             raise ValueError(f"{path}: invalid orientation sign {base}")
         maps.append(LocalMap(block, locations[location], (ni, nj, nk), group["gid"].astype(np.int64, copy=False), signs, group["owner"].astype(bool, copy=False)))
     return maps
+
+
+@dataclass(frozen=True)
+class FaceStorage:
+    """v3 DEC column space and this rank's raw restart-ghost B-face columns."""
+    quotient_count: int
+    column_count: int
+    ghost_columns: np.ndarray
+    ghost_addresses: np.ndarray
+
+
+def face_storage(path: Path, manifest: dict) -> FaceStorage:
+    names = {"Bstore_meta", "Bstore_global_id", "Bstore_quotient_id", "Bstore_address"}
+    values = _sections(path, "topology", manifest, lambda n: n in names)
+    if names - values.keys():
+        raise ValueError(f"{path}: DEC current needs v3 Bstore_* topology; regenerate DATA_bin")
+    meta = np.asarray(values["Bstore_meta"]).reshape(-1)
+    gids, qids, addresses = values["Bstore_global_id"], values["Bstore_quotient_id"], values["Bstore_address"]
+    if meta.size != 2 or not 0 <= meta[0] <= meta[1] or qids.shape != gids.shape or addresses.shape != (gids.size, 6):
+        raise ValueError(f"{path}: invalid Bstore metadata/arrays")
+    quotient = qids >= 0
+    # Quotient columns are the ordinary global Face IDs; only ghosts need restart addresses.
+    if np.any(gids[quotient] != qids[quotient]) or np.any(qids[quotient] >= meta[0]):
+        raise ValueError(f"{path}: Bstore quotient columns are not global Face IDs")
+    ghosts = ~quotient
+    if np.any(gids[ghosts] < meta[0]) or np.any(gids[ghosts] >= meta[1]):
+        raise ValueError(f"{path}: Bstore ghost columns lie outside the declared column space")
+    return FaceStorage(int(meta[0]), int(meta[1]), gids[ghosts].astype(np.int64, copy=False), addresses[ghosts].astype(np.int64, copy=False))
 
 
 def reconstruction(path: Path, manifest: dict, names: Iterable[str]) -> dict[str, np.ndarray]:

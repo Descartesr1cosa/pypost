@@ -8,6 +8,9 @@ input:
   static_dir: DATA_bin
   data_dir: DATA_archive/Step_003532299_Time_7.988853e+01
 
+# auto | fluid | solid | all.  Fluid-only fields (H/Na, E_*) force fluid.
+region: auto
+
 fields:
   - B_induced
   - H_density
@@ -16,6 +19,13 @@ fields:
   - Na_density
   - Na_velocity
   - Na_pressure
+  - B_additive
+  - B_total
+  - J_induced
+  - E_motional
+  - E_Hall
+  - E_ambipolar
+  - E_generalized
 
 output:
   path: processed/mercury_all_003532299.vtu

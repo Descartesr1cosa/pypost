@@ -18,11 +18,12 @@ def _case(tmp_path: Path) -> tuple[Path, Path]:
         "format_name": "MPCNS_PostData", "format_version": 3,
         "endianness": "little", "float_type": "float64", "index_type": "int64",
         "number_of_ranks": 1,
-        "files": {key: [f"{key}.bin"] for key in ("geometry", "topology", "reconstruction")},
+        "fields": [{"name": name} for name in ("Badd_xi", "Badd_eta", "Badd_zeta")],
+        "files": {key: [f"{key}.bin"] for key in ("geometry", "topology", "reconstruction", "constant_field")},
         "existing_dynamic_data": {"fields": [{"name": field} for field in ("B_xi", "B_eta", "B_zeta", "U_H", "U_Na")]},
     }
     (static / "manifest.json").write_text(json.dumps(manifest))
-    for name in ("geometry.bin", "topology.bin", "reconstruction.bin"):
+    for name in ("geometry.bin", "topology.bin", "reconstruction.bin", "constant_field.bin"):
         (static / name).write_bytes(b"stub")
     (data / "flow_field0000.bin").write_bytes(b"stub")
     return root, data
@@ -63,6 +64,31 @@ def test_mercury_yaml_preflight_passes_existing_converter_arguments(tmp_path, mo
     assert called["fields"] == ["B_induced"]
     assert called["memory_budget_gb"] == 2
     assert called["temp_dir"] == root / "processed" / "tmp"
+
+
+def test_mercury_yaml_passes_region_and_extended_fields_to_the_single_backend(tmp_path, monkeypatch):
+    root, _ = _case(tmp_path)
+    config = _write_config(tmp_path, root, fields=["B_total", "E_generalized"], region="fluid")
+    called = {}
+
+    def fake_convert(**kwargs):
+        called.update(kwargs)
+        return kwargs["output"]
+
+    from examples.converters.mercury import low_memory
+    monkeypatch.setattr(low_memory, "convert", fake_convert)
+    assert converter.convert_from_config(config) == root / "processed" / "result.vtu"
+    assert called["fields"] == ["B_total", "E_generalized"] and called["region"] == "fluid"
+
+
+def test_fluid_only_fields_are_never_written_over_solid_cells():
+    from examples.converters.mercury.low_memory import resolve_region
+    assert resolve_region(["H_density", "B_total"], "auto") == "fluid"
+    assert resolve_region(["B_total", "J_induced"], "auto") == "all"
+    assert resolve_region(["B_total"], "solid") == "solid"
+    for name in ("H_pressure", "E_Hall"):
+        with pytest.raises(ValueError, match="undefined in Solid"):
+            resolve_region([name], "all")
 
 
 def test_mercury_yaml_rejects_bad_output_and_missing_fields_before_conversion(tmp_path):
