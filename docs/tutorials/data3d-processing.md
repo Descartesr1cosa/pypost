@@ -82,6 +82,18 @@ coordinate and field units, dependencies, and operation parameters.  These
 are cache keys for workflow tooling; a changed source identity or parameters
 requires regeneration.
 
+## Reference values stored in the file
+
+A converter may store solver references and physical constants in the
+`normalization` block (the Mercury converter does; see its README). Operands of
+`derive_field` / `derived:` may then be written `"@<name>"` or a dotted path,
+for example `"@pressure_ref"` or `"@physical_constants.mu0"`, resolved from the
+file being processed. They act as unitless constants, and slice/line outputs
+repeat the `normalization` block so the nondimensionalization travels with
+every result. `examples/workflows/data3d/data3d_process.yml` shows magnitudes,
+a pressure recomputed in SI, and dimensional/nondimensional pairs. Note that
+YAML reads `1.0e9` as a string; write `1.0e+9` or `1000000000.0`.
+
 ## Scope
 
 This is ordinary VTK geometric interpolation of node fields.  It is not a

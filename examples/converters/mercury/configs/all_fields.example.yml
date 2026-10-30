@@ -11,17 +11,35 @@ input:
 # auto | fluid | solid | all.  Fluid-only fields (H/Na, E_*) force fluid.
 region: auto
 
+# none | both | only.  `both` adds a nondimensional <field>_nd twin (SI value /
+# solver reference) for every field that has one; `only` writes just the twins.
+nondimensional: both
+
 fields:
   - B_induced
-  - H_density
-  - H_velocity
-  - H_pressure
-  - Na_density
-  - Na_velocity
-  - Na_pressure
   - B_additive
   - B_total
   - J_induced
+  - H_density
+  - H_velocity
+  - H_pressure
+  - H_number_density
+  - H_temperature
+  - H_dynamic_pressure
+  - Na_density
+  - Na_velocity
+  - Na_pressure
+  - Na_number_density
+  - Na_temperature
+  - Na_dynamic_pressure
+  - electron_number_density
+  - ion_mass_density
+  - ion_charge_velocity
+  - thermal_pressure
+  - dynamic_pressure
+  - magnetic_pressure
+  - total_pressure
+  - plasma_beta
   - E_motional
   - E_Hall
   - E_ambipolar

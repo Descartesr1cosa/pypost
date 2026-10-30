@@ -82,9 +82,23 @@ def _descriptor(data: Data3D, name: str) -> dict[str, Any]:
     return value
 
 
+def _reference_value(data: Data3D, path: str) -> float:
+    """Resolve ``a.b`` in the file's ``normalization`` block, e.g. ``@pressure_ref`` or ``@physical_constants.mu0``."""
+    node: Any = data.metadata.get("normalization", {})
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(f"normalization has no entry {path!r}; available: {sorted(data.metadata.get('normalization', {}))}")
+        node = node[part]
+    if isinstance(node, bool) or not isinstance(node, (int, float)):
+        raise TypeError(f"normalization entry {path!r} is not a number")
+    return float(node)
+
+
 def _field(data: Data3D, value: str | DerivedField | float | int,
            available: Mapping[str, DerivedField] | None = None) -> tuple[np.ndarray, dict[str, Any], tuple[str, ...]]:
     if isinstance(value, DerivedField): return value.values, value.descriptor, value.dependencies
+    if isinstance(value, str) and value.startswith("@"):
+        return np.asarray(_reference_value(data, value[1:])), {"kind": "constant", "unit": "1", "provenance": "derived", "description": value}, ()
     if isinstance(value, str):
         if available and value in available:
             item = available[value]; return item.values, item.descriptor, item.dependencies
@@ -207,6 +221,7 @@ def extract_slice(data: Data3D, *, origin, normal, u_direction=None, fields: Seq
     metadata = {"format": "pypost-slice", "format_version": 1, "source": _source_identity(data),
                 "physical_time": data.metadata["physical_time"], "time_unit": data.metadata["time_unit"],
                 "coordinates": data.metadata["coordinates"], "fields": descriptors,
+                "normalization": data.metadata.get("normalization", {}),
                 "plane": {"origin": origin.tolist(), "normal": unit_normal.tolist(), "basis_u": basis[:, 0].tolist(), "basis_v": basis[:, 1].tolist()},
                 "operation": {"name": "extract_slice", "interpolation": "VTK cell intersection / PointData interpolation", "fields": requested}}
     return SliceData(result, metadata)
@@ -244,6 +259,7 @@ def sample_line(data: Data3D, *, start, end, n_points: int | None = None, spacin
     s = np.linspace(0.0, length, n_points)
     metadata = {"format": "pypost-data1d-line", "format_version": 1, "source": _source_identity(data),
                 "physical_time": data.metadata["physical_time"], "time_unit": data.metadata["time_unit"], "field_descriptors": line_descriptors,
+                "normalization": data.metadata.get("normalization", {}),
                 "operation": {"name": "sample_line", "start": start.tolist(), "end": end.tolist(), "n_points": n_points,
                               "spacing": length / (n_points - 1), "valid_mask": "valid", "interpolation": "VTK probe; no extrapolation"}}
     return Data1D(s, output, x_name="s", x_unit=data.metadata["coordinates"]["unit"], field_units=units, metadata=metadata, sort=False)

@@ -120,3 +120,28 @@ def test_mercury_yaml_rejects_output_directory_existing_result_and_unavailable_r
     result.unlink()
     with pytest.raises(ValueError, match="does not provide raw field"):
         converter.convert_from_config(unavailable)
+
+
+def test_nondimensional_twins_and_dependencies():
+    from examples.converters.mercury import low_memory as lm
+    assert lm.with_nondimensional(["B_total", "plasma_beta"], "both") == ["B_total", "B_total_nd", "plasma_beta"]
+    assert lm.with_nondimensional(["B_total", "plasma_beta"], "only") == ["B_total_nd", "plasma_beta"]
+    assert lm.with_nondimensional(["H_density"], "none") == ["H_density"]
+    with pytest.raises(ValueError):
+        lm.with_nondimensional(["H_density"], "sometimes")
+    # twins share the dimensional field's solver ingredients and fluid-only domain
+    assert lm.raw_fields("E_Hall_nd") == lm.raw_fields("E_Hall") == {"U_H", "U_Na", "B_xi", "B_eta", "B_zeta"}
+    assert lm.raw_fields("magnetic_pressure") == {"B_xi", "B_eta", "B_zeta"} and lm.needs_constant_fields("magnetic_pressure")
+    assert lm.resolve_region(["magnetic_pressure_nd", "J_induced_nd"], "auto") == "all"
+    assert lm.resolve_region(["dynamic_pressure_nd"], "auto") == "fluid"
+
+
+def test_nondimensional_scales_match_manifest_references():
+    from examples.converters.mercury.low_memory import nondimensional_scales
+    norm = {"density_ref": 2.0, "velocity_ref": 1e5, "pressure_ref": 4.0, "magnetic_field_ref": 1e-9,
+            "current_density_ref": 1e-10, "electric_field_ref": 1e-4, "temperature_ref": 100.0}
+    scales = nondimensional_scales(norm, {"particle_mass_H": 1e-27})
+    assert scales["pressure"]["to_nondimensional"] == pytest.approx(1e-9 / 4.0)       # nPa -> Pa / ref
+    assert scales["velocity"]["to_nondimensional"] == pytest.approx(1e3 / 1e5)        # km/s -> m/s / ref
+    assert scales["magnetic_field"]["to_nondimensional"] == pytest.approx(1.0)        # nT -> T / 1e-9
+    assert scales["number_density"]["to_nondimensional"] == pytest.approx(1e6 * 1e-27 / 2.0)

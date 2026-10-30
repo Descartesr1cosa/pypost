@@ -24,21 +24,9 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
-from .low_memory import REGIONS, SUPPORTED_FIELDS, resolve_region
+from .low_memory import REGIONS, SUPPORTED_FIELDS, needs_constant_fields, raw_fields, resolve_region, with_nondimensional
 
-
-_B = {"B_xi", "B_eta", "B_zeta"}
-_IONS = {"U_H", "U_Na"}
-# Restart fields each output needs; B_additive comes from the static Badd constants.
-_RAW_FIELDS = {
-    "B_induced": _B, "B_additive": set(), "B_total": _B, "J_induced": _B,
-    "H_density": {"U_H"}, "H_velocity": {"U_H"}, "H_pressure": {"U_H"},
-    "Na_density": {"U_Na"}, "Na_velocity": {"U_Na"}, "Na_pressure": {"U_Na"},
-    "E_motional": _B | _IONS, "E_Hall": _B | _IONS, "E_ambipolar": _IONS, "E_generalized": _B | _IONS,
-}
 _DEFAULT_FIELDS = ("B_induced", "H_density", "H_velocity", "H_pressure", "Na_density", "Na_velocity", "Na_pressure")
-_CONSTANT_FIELDS = {"B_additive", "B_total", "E_motional", "E_Hall", "E_generalized"}
-assert set(_RAW_FIELDS) == set(SUPPORTED_FIELDS)
 
 
 def _resolve(value: str | Path, base: Path) -> Path:
@@ -81,7 +69,7 @@ def load_yaml_config(path: str | Path) -> dict[str, Any]:
         "static_dir": _resolve(input_cfg.get("static_dir", ""), root).resolve(),
         "data_dir": _resolve(input_cfg.get("data_dir", ""), root).resolve(),
         "output": _resolve(output_cfg.get("path", ""), root).resolve(),
-        "fields": fields,
+        "fields": with_nondimensional(fields, str(raw.get("nondimensional", "none"))),
         "temp_dir": _resolve(runtime["temp_dir"], root).resolve() if runtime.get("temp_dir") else None,
         "memory_budget_gb": runtime.get("memory_budget_gb", 4.0),
         "region": str(raw.get("region", "auto")),
@@ -126,7 +114,7 @@ def validate_conversion_request(*, static_dir: Path, data_dir: Path, output: Pat
     if ranks <= 0 or not isinstance(files, dict):
         raise ValueError("Mercury manifest must declare at least one rank and its static files")
     categories = ["geometry", "topology", "reconstruction"]
-    if set(fields) & _CONSTANT_FIELDS:
+    if any(needs_constant_fields(field) for field in fields):
         categories.append("constant_field")
     for category in categories:
         entries = files.get(category)
@@ -140,8 +128,8 @@ def validate_conversion_request(*, static_dir: Path, data_dir: Path, output: Pat
     if missing_restart:
         raise FileNotFoundError(f"Mercury restart input is missing: {missing_restart}")
     available = {str(item.get("name")) for item in manifest.get("existing_dynamic_data", {}).get("fields", [])}
-    required = set().union(*(_RAW_FIELDS[field] for field in fields))
-    if set(fields) & _CONSTANT_FIELDS:
+    required = set().union(*(raw_fields(field) for field in fields))
+    if any(needs_constant_fields(field) for field in fields):
         constants = {str(item.get("name")) for item in manifest.get("fields", [])}
         if missing := sorted({"Badd_xi", "Badd_eta", "Badd_zeta"} - constants):
             raise ValueError(f"Mercury manifest lacks additive-field constants required by {fields}: {missing}")
@@ -174,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, help="Output Data3D v1 .vtu")
     parser.add_argument("--fields", default=",".join(_DEFAULT_FIELDS),
                         help=f"Comma-separated Data3D fields from {', '.join(SUPPORTED_FIELDS)}; use --fields B_induced for the smallest output")
+    parser.add_argument("--nondimensional", default="none", choices=("none", "both", "only"),
+                        help="Also write solver-nondimensional <field>_nd twins (both), or only those (only)")
     parser.add_argument("--region", default="auto", choices=REGIONS,
                         help="Output cells: auto (Fluid when any Fluid-only field is requested, else all), fluid, solid, or all")
     parser.add_argument("--temp-dir", type=Path, help="Directory for disk-backed temporary buffers")
@@ -190,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     if any(value is None for value in (args.static_dir, args.data_dir, args.output)):
         parser.error("use --config CONFIG.yml or supply --static-dir, --data-dir, and --output")
     request = {"static_dir": args.static_dir.resolve(), "data_dir": args.data_dir.resolve(), "output": args.output.resolve(),
-               "fields": [item.strip() for item in args.fields.split(",") if item.strip()],
+               "fields": with_nondimensional([item.strip() for item in args.fields.split(",") if item.strip()], args.nondimensional),
                "temp_dir": args.temp_dir.resolve() if args.temp_dir else None, "memory_budget_gb": args.memory_budget_gb,
                "overwrite": args.overwrite, "region": args.region, "keep_temp": args.keep_temp, "verify_readback": args.verify_readback}
     validate_conversion_request(**{key: request[key] for key in _REQUEST_KEYS})

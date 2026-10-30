@@ -1,26 +1,50 @@
-# Replace input.path with a self-contained Data3D v1 .vtu file.
+# Replace input.path with a self-contained Data3D v1 .vtu file produced by
+# examples/converters/mercury with configs/all_fields.example.yml
+# (fields + `nondimensional: both`).  Every file carries its reference values:
+#   @<name>                     normalization.<name>   e.g. @pressure_ref, @length_ref
+#   @physical_constants.<name>  e.g. @physical_constants.mu0, .elementary_charge
+#   @nondimensional_scales.<category>.to_nondimensional
+# Dimensional fields use output units (nT, km/s, nPa, cm^-3, K, nA/m^2, mV/m);
+# `<field>_nd` twins are nondimensional (SI value / solver reference).
 kind: data3d-process
 
 input:
-  path: mercury_B_003532299.vtu
+  path: mercury_all_003532299.vtu
 
 derived:
-  - name: B_induced_mag
-    operation: magnitude
-    field: B_induced
+  # --- magnitudes: dimensional and nondimensional -----------------------
+  - {name: B_total_mag, operation: magnitude, field: B_total}                 # nT
+  - {name: B_total_mag_nd, operation: magnitude, field: B_total_nd}
+  - {name: u_ion_mag, operation: magnitude, field: ion_charge_velocity}       # km/s
+  - {name: J_mag, operation: magnitude, field: J_induced}                     # nA/m^2
+  - {name: E_gen_mag, operation: magnitude, field: E_generalized}             # mV/m
+
+  # --- recompute pressures with the constants stored in the file ----------
+  # P_mag [nPa] = |B[nT]|^2 / mu0 * 0.5e-9 (SI mu0 from the file).  It squares the
+  # nodal-projected B, whereas magnetic_pressure is computed per cell and then projected;
+  # the two agree away from sharp gradients (nonlinear quantities do not commute with projection).
+  - {name: B_sq_nT2, operation: multiply, left: B_total_mag, right: B_total_mag}
+  - {name: B_sq_over_mu0, operation: divide, left: B_sq_nT2, right: "@physical_constants.mu0"}
+  - {name: Pmag_nPa_check, operation: multiply, left: B_sq_over_mu0, right: 5.0e-10}
+  # nondimensional -> SI with a file reference value: Pa = P_nd * pressure_ref
+  - {name: Pdyn_Pa, operation: multiply, left: dynamic_pressure_nd, right: "@pressure_ref"}
+
+  # --- mixed quantities (dimensional) -----------------------------------
+  - {name: speed_over_B, operation: divide, left: u_ion_mag, right: B_total_mag}
 
 slices:
   - name: xz
     origin: [0, 0, 0]
     normal: [0, -1, 0]
     u_direction: [1, 0, 0]
-    fields: [B_induced, B_induced_mag]
+    fields: [B_total, B_total_mag, B_total_nd, plasma_beta, thermal_pressure, magnetic_pressure,
+             dynamic_pressure, dynamic_pressure_nd, electron_number_density, J_mag, E_gen_mag]
     output: output/derived/xz.vtp
 
   - name: oblique
     origin: [0, 0, 0]
     normal: [1, 1, 1]
-    fields: [B_induced_mag]
+    fields: [B_total_mag, total_pressure]
     output: output/derived/oblique.vtp
 
 lines:
@@ -28,5 +52,6 @@ lines:
     start: [-3, 0, 0]
     end: [3, 0, 0]
     n_points: 501
-    fields: [B_induced, B_induced_mag]
+    fields: [B_total, B_total_mag, H_number_density, H_temperature, dynamic_pressure, dynamic_pressure_nd, Pdyn_Pa,
+             magnetic_pressure, Pmag_nPa_check]
     output: output/derived/x_profile.npz

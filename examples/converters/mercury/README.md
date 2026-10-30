@@ -69,36 +69,70 @@ for troubleshooting.
 ## Fluid and Solid domains
 
 `U_H`/`U_Na` are undefined in Mercury Solid cells (no density), so the ion
-fields (`H_*`, `Na_*`) and every electric term (`E_motional`, `E_Hall`,
-`E_ambipolar`, `E_generalized`) are **Fluid-only**. Solid cells are never given
+fields (`H_*`, `Na_*`), every mixture/pressure-balance field except
+`magnetic_pressure`, and every electric term (`E_*`) are **Fluid-only** (the same
+holds for their `_nd` twins). Solid cells are never given
 zeros or NaNs for them. The optional top-level `region` key selects the output:
 
 - `auto` (default): `fluid` if any Fluid-only field is requested, else `all`.
 - `fluid` / `solid` / `all`: explicit; a Fluid-only field with `solid`/`all`
   is rejected before any rank is read.
 
-`B_induced`, `B_additive`, `B_total` and `J_induced` exist in both domains.
+`B_induced`, `B_additive`, `B_total`, `J_induced` and `magnetic_pressure` exist in both domains.
 Output keeps only cells of the region and the nodes they use; nodal values use
 the solver's cell→node weights restricted to that region and renormalized.
 Every output value is checked finite before writing, and `PhysicsCode`
 (1=Fluid, 2=Solid) is stored per cell.
 
-## Electromagnetic fields
+## Fields
 
-All are computed from the MPCNS v3 files themselves; no external Mercury
-post-processing package is needed.
+Every field is computed per Fluid/Solid cell from the MPCNS v3 files and then
+projected to nodes (so nonlinear quantities such as `magnetic_pressure` are
+computed per cell first, not from projected components). Units: `B` nT,
+`J` nA/m², `E` mV/m, velocity km/s, pressure nPa, density kg/m³,
+number density cm⁻³, temperature K.
 
-- `B_induced`: restart face fluxes → `Bcell` operator. `B_additive`: static
-  `Badd_*` face constants through the same operator. `B_total` is their sum.
-- `J_induced`: v3 DEC chain `B-face (+raw ghost columns, Bstore) → J-edge →
-  J-cell`, from induced B only (as in the solver).
-- With `n_e = n_H + n_Na`, `u+ = (n_H u_H + n_Na u_Na)/n_e`, `p_e = p_H + p_Na`:
-  `E_motional = -u+ × B_total`, `E_Hall = J_induced × B_total/(e n_e)`,
-  `E_ambipolar = -∇p_e/(e n_e)` (blockwise curvilinear gradient on Fluid
-  blocks), `E_generalized` = sum. Output in mV/m; `J` in nA/m², `B` in nT.
+| Group | Fields |
+| --- | --- |
+| Magnetic | `B_induced`, `B_additive` (static `Badd`), `B_total` |
+| Current | `J_induced` — v3 DEC `B-face (+raw ghost columns) → J-edge → J-cell`, induced B only |
+| H⁺ / Na⁺ (Fluid) | `*_density`, `*_velocity`, `*_pressure`, `*_number_density` (ρ/m), `*_temperature` (p m/ρk_B), `*_dynamic_pressure` (ρ\|u\|², no ½) |
+| Mixture (Fluid) | `electron_number_density` (n_H+n_Na), `ion_mass_density`, `ion_charge_velocity` u₊, `thermal_pressure` (p_H+p_Na = p_e), `dynamic_pressure` |
+| Pressure balance | `magnetic_pressure` (\|B_total\|²/2μ₀, both domains), `total_pressure` (thermal + magnetic, Fluid), `plasma_beta` |
+| Electric (Fluid) | `E_motional = -u₊×B_total`, `E_Hall = J×B_total/(e n_e)`, `E_ambipolar = -∇p_e/(e n_e)` (blockwise curvilinear gradient), `E_generalized` = sum |
 
-On the example case (84 ranks) all 14 fields convert in ~16 s with ~1.6 GB
-peak RSS and agree with the original `Postprocess` script to ≤2e-15 relative.
+## Dimensional and nondimensional results
+
+`nondimensional: none | both | only` (YAML top level, or `--nondimensional`)
+adds a `<field>_nd` twin to every field that has a physical dimension
+(`beta` is already dimensionless): `X_nd = SI value / solver reference`, i.e.
+the numbers the solver itself evolves. `both` keeps dimensional and
+nondimensional fields side by side; `only` writes just the twins. Each
+descriptor links the pair (`nondimensional` / `dimensional` entries with the
+scale and reference name).
+
+The file's `normalization` block stores everything needed to convert or to
+compute further quantities downstream, so later steps never need the solver:
+
+- all solver references (`density_ref`, `velocity_ref`, `pressure_ref`,
+  `magnetic_field_ref`, `current_density_ref`, `electric_field_ref`,
+  `temperature_ref`, `time_ref`, `length_ref`) in SI;
+- `coordinate_scale_m` — coordinates are in `length_ref` (R_M) units;
+- `physical_constants` — `gamma`, `mu0`, `particle_mass_H/Na`,
+  `elementary_charge`, `boltzmann_constant`;
+- `nondimensional_scales.<category>` — output unit, reference name and
+  `to_nondimensional` factor (`X_nd = X * factor`);
+- `convention` — a short text summary. Number density is nondimensionalized as
+  `n m_H / density_ref`.
+
+`pypost process` can use them directly: operands such as `"@pressure_ref"` or
+`"@physical_constants.mu0"` resolve against the file (see
+`examples/workflows/data3d/data3d_process.yml`), and slice/line outputs carry
+the same `normalization` block.
+
+On the example case (84 ranks) all 28 dimensional fields plus their twins (55
+fields) convert in ~32 s; every value agrees with the original `Postprocess`
+script to ≤2e-15 relative and `X_nd` matches `X` / reference to ≤5e-16.
 
 The converter stops on missing owner maps, topology mismatches, duplicate owner
 IDs, alias inconsistencies, and degenerate polar hexahedra. It never merges

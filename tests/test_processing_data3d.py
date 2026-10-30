@@ -87,3 +87,25 @@ lines:
     assert outputs["xy"].is_file() and outputs["diagonal"].is_file()
     line = load_dataset(outputs["diagonal"])
     assert line.x_name == "s" and "V_x" in line.fields and line.metadata["operation"]["name"] == "sample_line"
+
+
+def test_derived_fields_can_reference_normalization_stored_in_the_file():
+    data = _volume()
+    data.metadata["normalization"] = {"pressure_ref": 4.0, "physical_constants": {"mu0": 2.0}, "label": "x"}
+    scaled = derive_field(data, name="f_si", operation="multiply", left="f", right="@pressure_ref")
+    np.testing.assert_allclose(scaled.values, 4.0 * np.asarray(data.mesh.point_data["f"]))
+    assert scaled.descriptor["unit"] == "Pa" and scaled.dependencies == ("f",)
+    nested = derive_field(data, name="f_mu", operation="divide", left="f", right="@physical_constants.mu0")
+    np.testing.assert_allclose(nested.values, np.asarray(data.mesh.point_data["f"]) / 2.0)
+    with pytest.raises(KeyError, match="no entry"):
+        derive_field(data, name="bad", operation="multiply", left="f", right="@missing_ref")
+    with pytest.raises(TypeError, match="not a number"):
+        derive_field(data, name="bad", operation="multiply", left="f", right="@label")
+
+
+def test_slice_and_line_outputs_carry_normalization():
+    data = _volume()
+    data.metadata["normalization"] = {"pressure_ref": 4.0}
+    assert extract_slice(data, origin=[.5, .5, .5], normal=[0, 0, 1], fields=["f"]).metadata["normalization"] == {"pressure_ref": 4.0}
+    line = sample_line(data, start=[0, .5, .5], end=[1, .5, .5], n_points=3, fields=["f"])
+    assert line.metadata["normalization"] == {"pressure_ref": 4.0}

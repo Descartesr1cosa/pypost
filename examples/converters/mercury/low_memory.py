@@ -39,7 +39,96 @@ _FIELDS = {
     "E_Hall": ("Fluid", "vector", "mV/m", "Hall electric field J_induced x B_total / (e n_e)", "derived"),
     "E_ambipolar": ("Fluid", "vector", "mV/m", "Ambipolar electric field -grad(p_e) / (e n_e), p_e = p_H + p_Na", "derived"),
     "E_generalized": ("Fluid", "vector", "mV/m", "Generalized-Ohm electric field E_motional + E_Hall + E_ambipolar", "derived"),
+    "H_number_density": ("Fluid", "scalar", "cm^-3", "H+ number density rho_H / m_H", "derived"),
+    "Na_number_density": ("Fluid", "scalar", "cm^-3", "Na+ number density rho_Na / m_Na", "derived"),
+    "electron_number_density": ("Fluid", "scalar", "cm^-3", "Electron number density n_e = n_H + n_Na (singly charged ions)", "derived"),
+    "ion_mass_density": ("Fluid", "scalar", "kg/m^3", "Total ion mass density rho_H + rho_Na", "derived"),
+    "ion_charge_velocity": ("Fluid", "vector", "km/s", "Charge-weighted ion velocity u_plus = (n_H u_H + n_Na u_Na) / n_e", "derived"),
+    "H_temperature": ("Fluid", "scalar", "K", "H+ temperature p m_H / (rho k_B)", "derived"),
+    "Na_temperature": ("Fluid", "scalar", "K", "Na+ temperature p m_Na / (rho k_B)", "derived"),
+    "thermal_pressure": ("Fluid", "scalar", "nPa", "Total ion thermal pressure p_H + p_Na (equals the electron pressure p_e used for E_ambipolar)", "derived"),
+    "H_dynamic_pressure": ("Fluid", "scalar", "nPa", "H+ dynamic pressure rho_H |u_H|^2 (no factor 1/2)", "derived"),
+    "Na_dynamic_pressure": ("Fluid", "scalar", "nPa", "Na+ dynamic pressure rho_Na |u_Na|^2 (no factor 1/2)", "derived"),
+    "dynamic_pressure": ("Fluid", "scalar", "nPa", "Total ion dynamic pressure rho_H |u_H|^2 + rho_Na |u_Na|^2 (no factor 1/2)", "derived"),
+    "magnetic_pressure": ("all", "scalar", "nPa", "Magnetic pressure |B_total|^2 / (2 mu0)", "derived"),
+    "total_pressure": ("Fluid", "scalar", "nPa", "Pressure-balance total thermal_pressure + magnetic_pressure (dynamic pressure excluded)", "derived"),
+    "plasma_beta": ("Fluid", "scalar", "1", "Plasma beta thermal_pressure / magnetic_pressure", "derived"),
 }
+
+# Dimensional category of each field; fields listed here get a nondimensional
+# ``<name>_nd`` twin (SI value / solver reference value).
+_CATEGORY = {
+    "H_density": "density", "Na_density": "density", "ion_mass_density": "density",
+    "H_velocity": "velocity", "Na_velocity": "velocity", "ion_charge_velocity": "velocity",
+    "H_pressure": "pressure", "Na_pressure": "pressure", "thermal_pressure": "pressure",
+    "H_dynamic_pressure": "pressure", "Na_dynamic_pressure": "pressure", "dynamic_pressure": "pressure",
+    "magnetic_pressure": "pressure", "total_pressure": "pressure",
+    "B_induced": "magnetic_field", "B_additive": "magnetic_field", "B_total": "magnetic_field",
+    "J_induced": "current_density",
+    "E_motional": "electric_field", "E_Hall": "electric_field", "E_ambipolar": "electric_field", "E_generalized": "electric_field",
+    "H_number_density": "number_density", "Na_number_density": "number_density", "electron_number_density": "number_density",
+    "H_temperature": "temperature", "Na_temperature": "temperature",
+}
+ND_SUFFIX = "_nd"
+
+# Solver ingredients of each dimensional field: H/Na ion state, B (induced B
+# cell field), Badd (static additive B), J (DEC current), grad (grad p_e).
+_NEEDS = {
+    "H_density": {"H"}, "H_velocity": {"H"}, "H_pressure": {"H"}, "H_number_density": {"H"}, "H_temperature": {"H"},
+    "H_dynamic_pressure": {"H"},
+    "Na_density": {"Na"}, "Na_velocity": {"Na"}, "Na_pressure": {"Na"}, "Na_number_density": {"Na"}, "Na_temperature": {"Na"},
+    "Na_dynamic_pressure": {"Na"},
+    "electron_number_density": {"H", "Na"}, "ion_mass_density": {"H", "Na"}, "ion_charge_velocity": {"H", "Na"},
+    "thermal_pressure": {"H", "Na"}, "dynamic_pressure": {"H", "Na"},
+    "B_induced": {"B"}, "B_additive": {"Badd"}, "B_total": {"B", "Badd"}, "J_induced": {"J"},
+    "magnetic_pressure": {"B", "Badd"}, "total_pressure": {"H", "Na", "B", "Badd"}, "plasma_beta": {"H", "Na", "B", "Badd"},
+    "E_motional": {"H", "Na", "B", "Badd"}, "E_Hall": {"H", "Na", "B", "Badd", "J"},
+    "E_ambipolar": {"H", "Na", "grad"}, "E_generalized": {"H", "Na", "B", "Badd", "J", "grad"},
+}
+assert set(_NEEDS) == set(_FIELDS)
+
+
+def _nd_name(name: str) -> str:
+    return name + ND_SUFFIX
+
+
+for _name in list(_CATEGORY):
+    _domain, _kind, _unit, _description, _ = _FIELDS[_name]
+    _FIELDS[_nd_name(_name)] = (_domain, _kind, "1", f"Nondimensional {_description[0].lower()}{_description[1:]} (SI value / solver reference)", "derived")
+    _NEEDS[_nd_name(_name)] = _NEEDS[_name]
+
+
+def base_field(name: str) -> str:
+    """Dimensional field behind ``name`` (identity for non-``_nd`` names)."""
+    return name[:-len(ND_SUFFIX)] if name.endswith(ND_SUFFIX) and name[:-len(ND_SUFFIX)] in _CATEGORY else name
+
+
+def with_nondimensional(fields: list[str], mode: str) -> list[str]:
+    """Expand a field list: ``none`` as given, ``both`` adds ``*_nd`` twins, ``only`` swaps to them."""
+    if mode not in ("none", "both", "only"):
+        raise ValueError(f"nondimensional must be none, both or only, not {mode!r}")
+    if mode == "none": return list(fields)
+    result: list[str] = []
+    for name in fields:
+        twin = _nd_name(name) if name in _CATEGORY else None
+        result.extend([name, twin] if mode == "both" and twin else [twin or name] if mode == "only" else [name])
+    return list(dict.fromkeys(result))
+
+
+def _tokens(fields) -> set[str]:
+    return set().union(*(_NEEDS[name] for name in fields)) if fields else set()
+
+
+def raw_fields(name: str) -> set[str]:
+    """Restart fields required by one output field."""
+    tokens = _NEEDS[name]
+    return ({"U_H"} if "H" in tokens else set()) | ({"U_Na"} if "Na" in tokens else set()) \
+        | ({"B_xi", "B_eta", "B_zeta"} if tokens & {"B", "J"} else set())
+
+
+def needs_constant_fields(name: str) -> bool:
+    return "Badd" in _NEEDS[name]
+
 
 # Public converter schema.  Keep this next to the solver-specific decoder so
 # the YAML front end never has to duplicate or guess Mercury field names.
@@ -47,9 +136,24 @@ SUPPORTED_FIELDS = tuple(_FIELDS)
 REGIONS = ("auto", "fluid", "solid", "all")
 
 _ELEMENTARY_CHARGE = 1.602176634e-19
+_BOLTZMANN = 1.380649e-23
 _CHUNK = 1 << 20
-_SPECIES_FIELDS = {"U_H": {"H_density", "H_velocity", "H_pressure"}, "U_Na": {"Na_density", "Na_velocity", "Na_pressure"}}
-_E_FIELDS = {"E_motional", "E_Hall", "E_ambipolar", "E_generalized"}
+
+
+def nondimensional_scales(norm: dict, constants: dict) -> dict[str, dict[str, Any]]:
+    """Per category: ``nd = value_in_output_unit * to_nondimensional``."""
+    unit = {"density": "kg/m^3", "velocity": "km/s", "pressure": "nPa", "magnetic_field": "nT", "current_density": "nA/m^2",
+            "electric_field": "mV/m", "number_density": "cm^-3", "temperature": "K"}
+    factor = {"density": 1 / norm["density_ref"], "velocity": 1e3 / norm["velocity_ref"], "pressure": 1e-9 / norm["pressure_ref"],
+              "magnetic_field": 1e-9 / norm["magnetic_field_ref"], "current_density": 1e-9 / norm["current_density_ref"],
+              "electric_field": 1e-3 / norm["electric_field_ref"],
+              # n_nd = n m_H / density_ref, i.e. relative to a hydrogen-mass number density.
+              "number_density": 1e6 * float(constants["particle_mass_H"]) / norm["density_ref"],
+              "temperature": 1 / norm["temperature_ref"]}
+    reference = {"density": "density_ref", "velocity": "velocity_ref", "pressure": "pressure_ref", "magnetic_field": "magnetic_field_ref",
+                 "current_density": "current_density_ref", "electric_field": "electric_field_ref", "number_density": "density_ref",
+                 "temperature": "temperature_ref"}
+    return {key: {"output_unit": unit[key], "to_nondimensional": factor[key], "reference": reference[key]} for key in unit}
 
 
 def resolve_region(fields: list[str], region: str = "auto") -> str:
@@ -61,7 +165,7 @@ def resolve_region(fields: list[str], region: str = "auto") -> str:
         return "fluid" if fluid_only else "all"
     if fluid_only and region != "fluid":
         raise ValueError(f"{fluid_only} are undefined in Solid cells; use region 'fluid' (or 'auto'), "
-                         "or request only B_induced/B_additive/B_total/J_induced")
+                         f"or request only fields defined in both domains: {sorted(n for n, v in _FIELDS.items() if v[0] == 'all' and not n.endswith(ND_SUFFIX))}")
     return region
 
 
@@ -72,11 +176,19 @@ def _map(path: Path, dtype, shape, fill=None) -> np.memmap:
     return value
 
 
-def _descriptor(name: str) -> dict[str, Any]:
+def _descriptor(name: str, scales: dict[str, dict[str, Any]]) -> dict[str, Any]:
     domain, kind, unit, description, provenance = _FIELDS[name]
     result = {"kind": kind, "components": 3 if kind == "vector" else 1, "unit": unit, "provenance": provenance,
               "description": description, "physics_domain": "Fluid" if domain == "Fluid" else "Fluid and Solid"}
     if kind == "vector": result["component_system"] = "Cartesian"
+    base = base_field(name)
+    if base in _CATEGORY:
+        scale = scales[_CATEGORY[base]]
+        if base == name:
+            result["nondimensional"] = {"field": _nd_name(name), "scale": scale["to_nondimensional"], "reference": scale["reference"]}
+        else:
+            result["dimensional"] = {"field": base, "unit": scale["output_unit"], "scale_from_dimensional": scale["to_nondimensional"],
+                                     "reference": scale["reference"]}
     return result
 
 
@@ -149,11 +261,10 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
     if unknown: raise ValueError(f"Unknown output fields: {unknown}; choose from {sorted(_FIELDS)}")
     region = resolve_region(fields, region)
     wanted = set(fields)
-    need_gradient = bool(wanted & {"E_ambipolar", "E_generalized"})
-    need_current = bool(wanted & {"J_induced", "E_Hall", "E_generalized"})
-    need_additive = bool(wanted & {"B_additive", "B_total", "E_motional", "E_Hall", "E_generalized"})
-    need_induced = bool(wanted & {"B_induced", "B_total", "E_motional", "E_Hall", "E_generalized"})
-    species = {name for name, outputs in _SPECIES_FIELDS.items() if wanted & (outputs | _E_FIELDS)}
+    tokens = _tokens(wanted)
+    need_gradient, need_current, need_additive = "grad" in tokens, "J" in tokens, "Badd" in tokens
+    need_induced = "B" in tokens
+    species = ({"U_H"} if "H" in tokens else set()) | ({"U_Na"} if "Na" in tokens else set())
     manifest = load_manifest(static_dir)
     norm, constants = manifest["normalization"], manifest["physical_constants"]
     fluid_bit, solid_bit = (int(manifest.get("cell_flag_bits", {}).get(key, 0)) for key in ("fluid", "solid"))
@@ -383,44 +494,60 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                     gradient[rows] = _curvilinear_gradient(xyz, value).reshape((-1, 3), order="F")
                 diagnostics.event("gradient_pe", rank=rank)
 
-        # Phase C2: requested cell values in output units.
+        # Phase C2: requested cell values in output units, then their nondimensional twins.
+        scales = nondimensional_scales(norm, constants)
+        mu0 = float(constants["mu0"])
         cell_values = {name: _map(work / f"out-{name}.f64", "float64", (cell_count, 3) if _FIELDS[name][1] == "vector" else cell_count, np.nan) for name in fields}
         for start in range(0, cell_count, _CHUNK):
             stop = min(start + _CHUNK, cell_count); part = fluid[start:stop]
             primitive = {name: species_chunk(name, start, stop) for name in sorted(species)}
-            out = {}
+            out: dict[str, np.ndarray] = {}
             for name in conserved:
                 prefix = name[2:]; rho, velocity, pressure = primitive[name]
                 out[f"{prefix}_density"] = rho * norm["density_ref"]
                 out[f"{prefix}_velocity"] = velocity * norm["velocity_ref"] * 1e-3
                 out[f"{prefix}_pressure"] = pressure * norm["pressure_ref"] * 1e9
+                out[f"{prefix}_number_density"] = out[f"{prefix}_density"] / mass[name] * 1e-6
+                out[f"{prefix}_temperature"] = pressure * norm["pressure_ref"] * mass[name] / (rho * norm["density_ref"] * _BOLTZMANN)
+                out[f"{prefix}_dynamic_pressure"] = rho * np.sum(velocity ** 2, axis=1) * norm["density_ref"] * norm["velocity_ref"] ** 2 * 1e9
+            if len(conserved) == 2:
+                (rho_h, vel_h, p_h), (rho_na, vel_na, p_na) = primitive["U_H"], primitive["U_Na"]
+                n_h = rho_h * norm["density_ref"] / mass["U_H"]; n_na = rho_na * norm["density_ref"] / mass["U_Na"]
+                n_e = n_h + n_na
+                out["electron_number_density"] = n_e * 1e-6
+                out["ion_mass_density"] = (rho_h + rho_na) * norm["density_ref"]
+                u_plus = (n_h[:, None] * vel_h + n_na[:, None] * vel_na) * norm["velocity_ref"] / n_e[:, None]
+                out["ion_charge_velocity"] = u_plus * 1e-3
+                out["thermal_pressure"] = (p_h + p_na) * norm["pressure_ref"] * 1e9
+                out["dynamic_pressure"] = out["H_dynamic_pressure"] + out["Na_dynamic_pressure"]
             b_total_nd = None
             if b_induced is not None: out["B_induced"] = b_induced[start:stop] * norm["magnetic_field_ref"] * 1e9
             if b_additive is not None: out["B_additive"] = b_additive[start:stop] * norm["magnetic_field_ref"] * 1e9
             if b_induced is not None and b_additive is not None:
                 b_total_nd = b_induced[start:stop] + b_additive[start:stop]; out["B_total"] = b_total_nd * norm["magnetic_field_ref"] * 1e9
+                out["magnetic_pressure"] = np.sum((b_total_nd * norm["magnetic_field_ref"]) ** 2, axis=1) / (2 * mu0) * 1e9
+                if len(conserved) == 2:
+                    out["total_pressure"] = out["thermal_pressure"] + out["magnetic_pressure"]
+                    out["plasma_beta"] = out["thermal_pressure"] / out["magnetic_pressure"]
             if j_cells is not None: out["J_induced"] = j_cells[start:stop] * norm["current_density_ref"] * 1e9
-            if wanted & _E_FIELDS:
-                n_h = primitive["U_H"][0] * norm["density_ref"] / mass["U_H"]
-                n_na = primitive["U_Na"][0] * norm["density_ref"] / mass["U_Na"]
-                n_e = n_h + n_na
+            if len(conserved) == 2 and any(base_field(name).startswith("E_") for name in wanted):
                 charge = _ELEMENTARY_CHARGE * n_e[:, None]
-                electric = {name: np.full((stop - start, 3), np.nan) for name in _E_FIELDS}
-                if wanted & {"E_motional", "E_Hall", "E_generalized"}:
+                electric = {name: np.full((stop - start, 3), np.nan) for name in ("E_motional", "E_Hall", "E_ambipolar", "E_generalized")}
+                if b_total_nd is not None:
                     b_tesla = b_total_nd[part] * norm["magnetic_field_ref"]
-                if wanted & {"E_motional", "E_generalized"}:
-                    u_plus = (n_h[part, None] * primitive["U_H"][1][part] + n_na[part, None] * primitive["U_Na"][1][part]) * norm["velocity_ref"] / n_e[part, None]
-                    electric["E_motional"][part] = -np.cross(u_plus, b_tesla)
-                if wanted & {"E_Hall", "E_generalized"}:
+                    electric["E_motional"][part] = -np.cross(u_plus[part], b_tesla)
+                if j_cells is not None and b_total_nd is not None:
                     current = j_cells[start:stop][part] * norm["current_density_ref"]
                     electric["E_Hall"][part] = np.cross(current, b_tesla) / charge[part]
-                if wanted & {"E_ambipolar", "E_generalized"}:
+                if gradient is not None:
                     electric["E_ambipolar"][part] = -gradient[start:stop][part] / charge[part]
-                if "E_generalized" in wanted:
+                if gradient is not None and j_cells is not None:
                     electric["E_generalized"][part] = electric["E_motional"][part] + electric["E_Hall"][part] + electric["E_ambipolar"][part]
                 out.update({name: value * 1e3 for name, value in electric.items()})
             for name in fields:
-                cell_values[name][start:stop] = out[name]
+                base = base_field(name)
+                value = out[base]
+                cell_values[name][start:stop] = value * scales[_CATEGORY[base]]["to_nondimensional"] if name != base else value
         for name in fields:
             for start in range(0, cell_count, _CHUNK):
                 stop = min(start + _CHUNK, cell_count)
@@ -505,7 +632,7 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                   "fluid_cells": int(np.count_nonzero(fluid)), "solid_cells": int(np.count_nonzero(solid)),
                   "region": region, "output_cells": kept_cells, "output_points": int(len(out_points)),
                   "cell_types": {"VTK_HEXAHEDRON": kept_cells}, "invalid_cells": 0, "skipped_cells": 0,
-                  "owner_alias_discrepancies": 0, "source_fields": sorted(requested_raw), "output_fields": fields,
+                  "owner_alias_discrepancies": 0, "source_fields": sorted(requested_raw), "output_fields": list(fields),
                   "reconstruction_methods": {"B": "MPCNS B_face_to_cell_cartesian", "J_induced": "MPCNS v3 DEC B_face_to_J_edge + J_edge_to_cell",
                                              "grad_p_e": "blockwise curvilinear cell-centre gradient on Fluid blocks",
                                              "nodal": f"MPCNS cell_scalar_to_node restricted to {region} cells, renormalized"},
@@ -514,10 +641,16 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                   "peak_memory": diagnostics.peak_rss}
         metadata = Data3D.standard_metadata(physical_time=float(time_value), time_unit="s", coordinate_unit="R_M",
             source={"name": "mercury_to_data3d", "version": "3-streaming", "mesh_uuid": manifest["mesh_uuid"], "case_uuid": manifest["case_uuid"]},
-            fields={name: _descriptor(name) for name in fields},
+            fields={name: _descriptor(name, scales) for name in fields},
             cell_fields={"SourceBlockId": {"role": "source_block_id"}, "SourceRank": {"role": "source_rank"}, "SourceLocalBlockId": {"role": "source_local_block_id"},
                          "PhysicsCode": {"role": "physics_code", "values": {"1": "Fluid", "2": "Solid"}}},
-            normalization={**norm, "coordinate_reference": "Mercury radius R_M"}, conversion={"report": report, "memory": diagnostics.report()})
+            normalization={**norm, "coordinate_reference": "Mercury radius R_M", "coordinate_scale_m": norm["length_ref"],
+                           "physical_constants": {**{k: float(v) for k, v in constants.items()}, "elementary_charge": _ELEMENTARY_CHARGE,
+                                                  "boltzmann_constant": _BOLTZMANN},
+                           "nondimensional_scales": scales,
+                           "convention": "nondimensional = SI value / <name>_ref; fields named <X>_nd = <X> * nondimensional_scales[category].to_nondimensional; "
+                                         "coordinates are already in units of length_ref (R_M)"},
+            conversion={"report": report, "memory": diagnostics.report()})
         partial = output.with_suffix(output.suffix + ".partial")
         write_vtu(partial, metadata=metadata, points=out_points, fields=out_fields, cells=out_cells, offsets=offsets, types=types,
                   cell_data=out_cell_data)
