@@ -24,7 +24,8 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
-from .low_memory import REGIONS, SUPPORTED_FIELDS, needs_constant_fields, raw_fields, resolve_region, with_nondimensional
+from .low_memory import (REGIONS, SOLVER_MODEL_KEYS, SUPPORTED_FIELDS, check_solver_model, needs_constant_fields, raw_fields,
+                         resolve_region, with_hall_model, with_nondimensional)
 
 _DEFAULT_FIELDS = ("B_induced", "H_density", "H_velocity", "H_pressure", "Na_density", "Na_velocity", "Na_pressure")
 
@@ -69,7 +70,8 @@ def load_yaml_config(path: str | Path) -> dict[str, Any]:
         "static_dir": _resolve(input_cfg.get("static_dir", ""), root).resolve(),
         "data_dir": _resolve(input_cfg.get("data_dir", ""), root).resolve(),
         "output": _resolve(output_cfg.get("path", ""), root).resolve(),
-        "fields": with_nondimensional(fields, str(raw.get("nondimensional", "none"))),
+        "fields": with_nondimensional(with_hall_model(fields, str(raw.get("hall_model", "data"))), str(raw.get("nondimensional", "none"))),
+        "solver_model": raw.get("solver_model"),
         "temp_dir": _resolve(runtime["temp_dir"], root).resolve() if runtime.get("temp_dir") else None,
         "memory_budget_gb": runtime.get("memory_budget_gb", 4.0),
         "region": str(raw.get("region", "auto")),
@@ -81,7 +83,7 @@ def load_yaml_config(path: str | Path) -> dict[str, Any]:
 
 def validate_conversion_request(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str],
                                 temp_dir: Path | None, memory_budget_gb: float | None,
-                                overwrite: bool = False, region: str = "auto") -> None:
+                                overwrite: bool = False, region: str = "auto", solver_model: dict | None = None) -> None:
     """Reject configuration/path errors before a rank file is streamed."""
     from .streaming import load_manifest
 
@@ -91,6 +93,7 @@ def validate_conversion_request(*, static_dir: Path, data_dir: Path, output: Pat
     if len(set(fields)) != len(fields):
         raise ValueError("Mercury YAML fields must not contain duplicates")
     resolve_region(fields, region)
+    check_solver_model(fields, solver_model)
     if memory_budget_gb is not None and float(memory_budget_gb) <= 0:
         raise ValueError("runtime.memory_budget_gb must be positive")
     if output.suffix.lower() != ".vtu":
@@ -142,8 +145,8 @@ def validate_conversion_request(*, static_dir: Path, data_dir: Path, output: Pat
         temp_dir.mkdir(parents=True, exist_ok=True)
 
 
-_REQUEST_KEYS = ("static_dir", "data_dir", "output", "fields", "temp_dir", "memory_budget_gb", "overwrite", "region")
-_CONVERT_KEYS = ("static_dir", "data_dir", "output", "fields", "temp_dir", "memory_budget_gb", "region", "keep_temp", "verify_readback")
+_REQUEST_KEYS = ("static_dir", "data_dir", "output", "fields", "temp_dir", "memory_budget_gb", "overwrite", "region", "solver_model")
+_CONVERT_KEYS = ("static_dir", "data_dir", "output", "fields", "temp_dir", "memory_budget_gb", "region", "solver_model", "keep_temp", "verify_readback")
 
 
 def convert_from_config(path: str | Path) -> Path:
@@ -164,6 +167,12 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Comma-separated Data3D fields from {', '.join(SUPPORTED_FIELDS)}; use --fields B_induced for the smallest output")
     parser.add_argument("--nondimensional", default="none", choices=("none", "both", "only"),
                         help="Also write solver-nondimensional <field>_nd twins (both), or only those (only)")
+    parser.add_argument("--hall-model", default="data", choices=("data", "solver", "both"),
+                        help="E_Hall/E_ambipolar/E_generalized from the data alone (data), as the solver advances them "
+                             "(solver: regularized n_e and Hall taper), or both; solver needs the three --hall-taper*/--ne-hall-floor options")
+    parser.add_argument("--hall-taper-r-min", type=float, help="Case r_min of the solver's radial Hall taper (R_M)")
+    parser.add_argument("--hall-taper-r-max", type=float, help="Case r_max of the solver's radial Hall taper (R_M)")
+    parser.add_argument("--ne-hall-floor", type=float, help="Solver ne_hall_floor (nondimensional, units of the reference number density)")
     parser.add_argument("--region", default="auto", choices=REGIONS,
                         help="Output cells: auto (Fluid when any Fluid-only field is requested, else all), fluid, solid, or all")
     parser.add_argument("--temp-dir", type=Path, help="Directory for disk-backed temporary buffers")
@@ -180,7 +189,8 @@ def main(argv: list[str] | None = None) -> int:
     if any(value is None for value in (args.static_dir, args.data_dir, args.output)):
         parser.error("use --config CONFIG.yml or supply --static-dir, --data-dir, and --output")
     request = {"static_dir": args.static_dir.resolve(), "data_dir": args.data_dir.resolve(), "output": args.output.resolve(),
-               "fields": with_nondimensional([item.strip() for item in args.fields.split(",") if item.strip()], args.nondimensional),
+               "fields": with_nondimensional(with_hall_model([item.strip() for item in args.fields.split(",") if item.strip()], args.hall_model), args.nondimensional),
+               "solver_model": {key: value for key, value in zip(SOLVER_MODEL_KEYS, (args.hall_taper_r_min, args.hall_taper_r_max, args.ne_hall_floor)) if value is not None} or None,
                "temp_dir": args.temp_dir.resolve() if args.temp_dir else None, "memory_budget_gb": args.memory_budget_gb,
                "overwrite": args.overwrite, "region": args.region, "keep_temp": args.keep_temp, "verify_readback": args.verify_readback}
     validate_conversion_request(**{key: request[key] for key in _REQUEST_KEYS})

@@ -101,6 +101,45 @@ number density cm⁻³, temperature K.
 | Pressure balance | `magnetic_pressure` (\|B_total\|²/2μ₀, both domains), `total_pressure` (thermal + magnetic, Fluid), `plasma_beta` |
 | Electric (Fluid) | `E_motional = -u₊×B_total`, `E_Hall = J×B_total/(e n_e)`, `E_ambipolar = -∇p_e/(e n_e)` (blockwise curvilinear gradient), `E_generalized` = sum |
 
+## Data-only vs solver-model Hall/ambipolar fields
+
+`E_Hall`, `E_ambipolar`, `E_generalized` are computed **from the data alone**
+(`n_e = n_H + n_Na`, no taper). The solver (MPCNS_Mercury, branch `Mercury`,
+`Z4_Mercury`) advances slightly different quantities, so the `*_solver` twins
+reproduce its induction/momentum sources:
+
+- `n_e,eff = sqrt(n_e² + ne_hall_floor²)`, with `n_e` and the floor in units of
+  the reference number density (`ne_hall_floor = 0.01`, `n_ref = 4×10⁷ m⁻³`);
+  used by Hall, ambipolar and the species weights `n_s/n_e,eff`.
+- Hall induction EMF only is multiplied by the radial taper
+  `½[1+tanh(2(r−mid)/(r_max−r_min))]`, `mid=(r_min+r_max)/2`, `r_min=1.3`,
+  `r_max=1.7` (`CASE/setup/3_MHD_Control.txt`), `r` = cell-centre radius in R_M.
+- The ambipolar EMF has no taper. The **momentum** Hall source
+  `(n_s/n_e,eff) J×B` and `−(n_s/n_e,eff)∇p_e` has **no taper** either, so
+  `E_Hall_solver` is *not* the field behind the momentum Hall force.
+
+| Switch | Result |
+| --- | --- |
+| `hall_model: data` (default) | requested `E_*` fields as given |
+| `hall_model: solver` | `E_Hall`, `E_ambipolar`, `E_generalized` replaced by `E_Hall_solver`, `E_ambipolar_solver`, `E_generalized_solver` |
+| `hall_model: both` | both versions side by side |
+
+Solver-model fields (also requestable by name; need the case parameters in
+YAML `solver_model` — they are never guessed):
+`electron_number_density_reg`, `hall_taper`, `E_Hall_solver`,
+`E_ambipolar_solver`, `E_generalized_solver`, and momentum sources
+`{H,Na,ion}_Hall_force`, `{H,Na,ion}_ambipolar_force` (fN/m³).
+
+```yaml
+hall_model: both
+solver_model: {hall_taper_r_min: 1.3, hall_taper_r_max: 1.7, ne_hall_floor: 0.01}
+```
+
+CLI: `--hall-model both --hall-taper-r-min 1.3 --hall-taper-r-max 1.7 --ne-hall-floor 0.01`.
+The parameters are stored under `normalization.solver_model` in the file. The
+solver's edge EMFs also contain a numerical Rusanov-type Hall diffusion term;
+it is not part of the physical `E_Hall_solver` here.
+
 ## Dimensional and nondimensional results
 
 `nondimensional: none | both | only` (YAML top level, or `--nondimensional`)

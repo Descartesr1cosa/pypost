@@ -139,9 +139,53 @@ def test_nondimensional_twins_and_dependencies():
 def test_nondimensional_scales_match_manifest_references():
     from examples.converters.mercury.low_memory import nondimensional_scales
     norm = {"density_ref": 2.0, "velocity_ref": 1e5, "pressure_ref": 4.0, "magnetic_field_ref": 1e-9,
-            "current_density_ref": 1e-10, "electric_field_ref": 1e-4, "temperature_ref": 100.0}
+            "current_density_ref": 1e-10, "electric_field_ref": 1e-4, "temperature_ref": 100.0, "length_ref": 2.0}
     scales = nondimensional_scales(norm, {"particle_mass_H": 1e-27})
     assert scales["pressure"]["to_nondimensional"] == pytest.approx(1e-9 / 4.0)       # nPa -> Pa / ref
     assert scales["velocity"]["to_nondimensional"] == pytest.approx(1e3 / 1e5)        # km/s -> m/s / ref
     assert scales["magnetic_field"]["to_nondimensional"] == pytest.approx(1.0)        # nT -> T / 1e-9
     assert scales["number_density"]["to_nondimensional"] == pytest.approx(1e6 * 1e-27 / 2.0)
+
+
+def test_curvilinear_gradient_is_exact_on_a_skewed_grid():
+    import numpy as np
+    from examples.converters.mercury.low_memory import _curvilinear_gradient
+    xi, eta, zeta = np.meshgrid(*[np.arange(n, dtype=float) for n in (7, 8, 9)], indexing="ij")
+    xyz = np.stack([xi + 0.4 * eta, 0.5 * xi + eta + 0.2 * zeta, 0.3 * eta + zeta + 0.001 * xi ** 2], axis=-1)
+    exact = np.array([1.0, -2.0, 0.5])
+    np.testing.assert_allclose(_curvilinear_gradient(xyz, xyz @ exact), np.broadcast_to(exact, xyz.shape), atol=1e-12)
+
+
+def test_hall_model_switch_keeps_data_and_solver_variants():
+    from examples.converters.mercury import low_memory as lm
+    fields = ["E_motional", "E_Hall", "E_generalized", "B_total"]
+    assert lm.with_hall_model(fields, "data") == fields
+    assert lm.with_hall_model(fields, "solver") == ["E_motional", "E_Hall_solver", "E_generalized_solver", "B_total"]
+    assert lm.with_hall_model(fields, "both") == ["E_motional", "E_Hall", "E_Hall_solver", "E_generalized", "E_generalized_solver", "B_total"]
+    assert lm.with_nondimensional(["E_Hall_solver", "hall_taper", "ion_Hall_force"], "both") == [
+        "E_Hall_solver", "E_Hall_solver_nd", "hall_taper", "ion_Hall_force", "ion_Hall_force_nd"]
+    with pytest.raises(ValueError):
+        lm.with_hall_model(fields, "maybe")
+
+
+def test_solver_model_fields_demand_case_parameters_instead_of_guessing():
+    from examples.converters.mercury import low_memory as lm
+    assert lm.check_solver_model(["E_Hall", "B_total"], None) is None            # data-only requests need nothing
+    for name in ("E_Hall_solver", "hall_taper", "ion_Hall_force_nd", "electron_number_density_reg"):
+        with pytest.raises(ValueError, match="solver_model"):
+            lm.check_solver_model([name], {"hall_taper_r_min": 1.3})
+    model = lm.check_solver_model(["E_Hall_solver"], {"hall_taper_r_min": 1.3, "hall_taper_r_max": 1.7, "ne_hall_floor": 0.01})
+    assert model == {"hall_taper_r_min": 1.3, "hall_taper_r_max": 1.7, "ne_hall_floor": 0.01}
+    assert lm.resolve_region(["hall_taper"], "auto") == "all" and lm.resolve_region(["E_Hall_solver"], "auto") == "fluid"
+    assert lm.raw_fields("E_Hall_solver") == lm.raw_fields("E_Hall") and "ctr" in lm._NEEDS["E_Hall_solver"]
+
+
+def test_yaml_hall_model_expands_fields_and_passes_solver_model(tmp_path):
+    root, _ = _case(tmp_path)
+    config = _write_config(tmp_path, root, fields=["E_Hall"], hall_model="both",
+                           solver_model={"hall_taper_r_min": 1.3, "hall_taper_r_max": 1.7, "ne_hall_floor": 0.01})
+    request = converter.load_yaml_config(config)
+    assert request["fields"] == ["E_Hall", "E_Hall_solver"] and request["solver_model"]["ne_hall_floor"] == 0.01
+    missing = _write_config(tmp_path, root, fields=["E_Hall"], hall_model="solver")
+    with pytest.raises(ValueError, match="solver_model"):
+        converter.validate_conversion_request(**{k: converter.load_yaml_config(missing)[k] for k in converter._REQUEST_KEYS})

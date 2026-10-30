@@ -53,6 +53,18 @@ _FIELDS = {
     "magnetic_pressure": ("all", "scalar", "nPa", "Magnetic pressure |B_total|^2 / (2 mu0)", "derived"),
     "total_pressure": ("Fluid", "scalar", "nPa", "Pressure-balance total thermal_pressure + magnetic_pressure (dynamic pressure excluded)", "derived"),
     "plasma_beta": ("Fluid", "scalar", "1", "Plasma beta thermal_pressure / magnetic_pressure", "derived"),
+    # --- solver-model variants (need `solver_model`): regularized n_e, Hall taper, momentum sources ---
+    "electron_number_density_reg": ("Fluid", "scalar", "cm^-3", "Solver-regularized electron number density n_e,eff = sqrt(n_e^2 + floor^2)", "derived"),
+    "hall_taper": ("all", "scalar", "1", "Solver radial Hall taper 0.5 (1 + tanh(2 (r - mid) / (r_max - r_min))) at the cell centre; r in R_M", "derived"),
+    "E_Hall_solver": ("Fluid", "vector", "mV/m", "Hall electric field as advanced by the solver: hall_taper J_induced x B_total / (e n_e,eff)", "derived"),
+    "E_ambipolar_solver": ("Fluid", "vector", "mV/m", "Ambipolar electric field as advanced by the solver: -grad(p_e) / (e n_e,eff), no taper", "derived"),
+    "E_generalized_solver": ("Fluid", "vector", "mV/m", "E_motional + E_Hall_solver + E_ambipolar_solver", "derived"),
+    "H_Hall_force": ("Fluid", "vector", "fN/m^3", "Solver momentum source on H+ from Hall: (n_H / n_e,eff) J_induced x B_total (no radial taper)", "derived"),
+    "Na_Hall_force": ("Fluid", "vector", "fN/m^3", "Solver momentum source on Na+ from Hall: (n_Na / n_e,eff) J_induced x B_total (no radial taper)", "derived"),
+    "ion_Hall_force": ("Fluid", "vector", "fN/m^3", "Total solver Hall momentum source ((n_H + n_Na) / n_e,eff) J_induced x B_total", "derived"),
+    "H_ambipolar_force": ("Fluid", "vector", "fN/m^3", "Solver electron-pressure force on H+: -(n_H / n_e,eff) grad(p_e)", "derived"),
+    "Na_ambipolar_force": ("Fluid", "vector", "fN/m^3", "Solver electron-pressure force on Na+: -(n_Na / n_e,eff) grad(p_e)", "derived"),
+    "ion_ambipolar_force": ("Fluid", "vector", "fN/m^3", "Total solver electron-pressure force -((n_H + n_Na) / n_e,eff) grad(p_e)", "derived"),
 }
 
 # Dimensional category of each field; fields listed here get a nondimensional
@@ -68,6 +80,10 @@ _CATEGORY = {
     "E_motional": "electric_field", "E_Hall": "electric_field", "E_ambipolar": "electric_field", "E_generalized": "electric_field",
     "H_number_density": "number_density", "Na_number_density": "number_density", "electron_number_density": "number_density",
     "H_temperature": "temperature", "Na_temperature": "temperature",
+    "electron_number_density_reg": "number_density",
+    "E_Hall_solver": "electric_field", "E_ambipolar_solver": "electric_field", "E_generalized_solver": "electric_field",
+    "H_Hall_force": "force_density", "Na_Hall_force": "force_density", "ion_Hall_force": "force_density",
+    "H_ambipolar_force": "force_density", "Na_ambipolar_force": "force_density", "ion_ambipolar_force": "force_density",
 }
 ND_SUFFIX = "_nd"
 
@@ -84,6 +100,11 @@ _NEEDS = {
     "magnetic_pressure": {"B", "Badd"}, "total_pressure": {"H", "Na", "B", "Badd"}, "plasma_beta": {"H", "Na", "B", "Badd"},
     "E_motional": {"H", "Na", "B", "Badd"}, "E_Hall": {"H", "Na", "B", "Badd", "J"},
     "E_ambipolar": {"H", "Na", "grad"}, "E_generalized": {"H", "Na", "B", "Badd", "J", "grad"},
+    "electron_number_density_reg": {"H", "Na"}, "hall_taper": {"ctr"},
+    "E_Hall_solver": {"H", "Na", "B", "Badd", "J", "ctr"}, "E_ambipolar_solver": {"H", "Na", "grad"},
+    "E_generalized_solver": {"H", "Na", "B", "Badd", "J", "grad", "ctr"},
+    "H_Hall_force": {"H", "Na", "B", "Badd", "J"}, "Na_Hall_force": {"H", "Na", "B", "Badd", "J"}, "ion_Hall_force": {"H", "Na", "B", "Badd", "J"},
+    "H_ambipolar_force": {"H", "Na", "grad"}, "Na_ambipolar_force": {"H", "Na", "grad"}, "ion_ambipolar_force": {"H", "Na", "grad"},
 }
 assert set(_NEEDS) == set(_FIELDS)
 
@@ -115,6 +136,40 @@ def with_nondimensional(fields: list[str], mode: str) -> list[str]:
     return list(dict.fromkeys(result))
 
 
+# Dimensional field -> the same quantity as advanced by the solver (regularized n_e, Hall taper).
+SOLVER_VARIANT = {"E_Hall": "E_Hall_solver", "E_ambipolar": "E_ambipolar_solver", "E_generalized": "E_generalized_solver"}
+SOLVER_MODEL_KEYS = ("hall_taper_r_min", "hall_taper_r_max", "ne_hall_floor")
+_SOLVER_ONLY = {"electron_number_density_reg", "hall_taper", *SOLVER_VARIANT.values(),
+                "H_Hall_force", "Na_Hall_force", "ion_Hall_force", "H_ambipolar_force", "Na_ambipolar_force", "ion_ambipolar_force"}
+
+
+def with_hall_model(fields: list[str], mode: str) -> list[str]:
+    """``data``: fields as given; ``solver``: swap E_Hall/E_ambipolar/E_generalized for their solver-model variants; ``both``: keep both."""
+    if mode not in ("data", "solver", "both"):
+        raise ValueError(f"hall_model must be data, solver or both, not {mode!r}")
+    if mode == "data": return list(fields)
+    result: list[str] = []
+    for name in fields:
+        twin = SOLVER_VARIANT.get(name)
+        result.extend([name, twin] if mode == "both" and twin else [twin or name] if mode == "solver" else [name])
+    return list(dict.fromkeys(result))
+
+
+def check_solver_model(fields, solver_model: dict | None) -> dict | None:
+    """Solver-model fields need the case's taper/floor parameters; refuse to guess them."""
+    needed = sorted({base_field(name) for name in fields} & _SOLVER_ONLY)
+    if not needed: return solver_model
+    missing = [key for key in SOLVER_MODEL_KEYS if not isinstance(solver_model, dict) or key not in solver_model]
+    if missing:
+        raise ValueError(f"{needed} follow the solver's Hall regularization and need `solver_model` with {list(SOLVER_MODEL_KEYS)} "
+                         f"(from the case's r_min/r_max and the solver's ne_hall_floor); missing {missing}")
+    values = {key: float(solver_model[key]) for key in SOLVER_MODEL_KEYS}
+    if values["hall_taper_r_max"] < values["hall_taper_r_min"] or values["ne_hall_floor"] < 0:
+        raise ValueError("solver_model needs hall_taper_r_max >= hall_taper_r_min and ne_hall_floor >= 0")
+    if "reference_number_density" in solver_model: values["reference_number_density"] = float(solver_model["reference_number_density"])
+    return values
+
+
 def _tokens(fields) -> set[str]:
     return set().union(*(_NEEDS[name] for name in fields)) if fields else set()
 
@@ -143,16 +198,17 @@ _CHUNK = 1 << 20
 def nondimensional_scales(norm: dict, constants: dict) -> dict[str, dict[str, Any]]:
     """Per category: ``nd = value_in_output_unit * to_nondimensional``."""
     unit = {"density": "kg/m^3", "velocity": "km/s", "pressure": "nPa", "magnetic_field": "nT", "current_density": "nA/m^2",
-            "electric_field": "mV/m", "number_density": "cm^-3", "temperature": "K"}
+            "electric_field": "mV/m", "number_density": "cm^-3", "temperature": "K", "force_density": "fN/m^3"}
     factor = {"density": 1 / norm["density_ref"], "velocity": 1e3 / norm["velocity_ref"], "pressure": 1e-9 / norm["pressure_ref"],
               "magnetic_field": 1e-9 / norm["magnetic_field_ref"], "current_density": 1e-9 / norm["current_density_ref"],
               "electric_field": 1e-3 / norm["electric_field_ref"],
               # n_nd = n m_H / density_ref, i.e. relative to a hydrogen-mass number density.
               "number_density": 1e6 * float(constants["particle_mass_H"]) / norm["density_ref"],
-              "temperature": 1 / norm["temperature_ref"]}
+              "temperature": 1 / norm["temperature_ref"],
+              "force_density": 1e-15 * norm["length_ref"] / (norm["density_ref"] * norm["velocity_ref"] ** 2)}
     reference = {"density": "density_ref", "velocity": "velocity_ref", "pressure": "pressure_ref", "magnetic_field": "magnetic_field_ref",
                  "current_density": "current_density_ref", "electric_field": "electric_field_ref", "number_density": "density_ref",
-                 "temperature": "temperature_ref"}
+                 "temperature": "temperature_ref", "force_density": "density_ref*velocity_ref^2/length_ref"}
     return {key: {"output_unit": unit[key], "to_nondimensional": factor[key], "reference": reference[key]} for key in unit}
 
 
@@ -240,9 +296,10 @@ def _curvilinear_gradient(xyz: np.ndarray, scalar: np.ndarray) -> np.ndarray:
     if min(scalar.shape) < 2:
         raise ValueError(f"Fluid block of shape {scalar.shape} is too thin for a pressure gradient")
     order = 2 if min(scalar.shape) >= 3 else 1
-    # metric[..., computational_axis, Cartesian_component] = d x_component / d axis
-    metric = np.swapaxes(np.stack([np.stack(np.gradient(xyz[..., c], axis=(0, 1, 2), edge_order=order), axis=-1)
-                                   for c in range(3)], axis=-1), -1, -2)
+    # metric[..., a, c] = d x_c / d xi_a.  The chain rule d phi/d xi_a = sum_c (d x_c/d xi_a) dphi/dx_c
+    # gives metric @ grad = dphi/dxi (the transpose of the physical Jacobian is the right operand).
+    metric = np.stack([np.stack(np.gradient(xyz[..., c], axis=(0, 1, 2), edge_order=order), axis=-1)
+                       for c in range(3)], axis=-1)
     derivative = np.stack(np.gradient(scalar, axis=(0, 1, 2), edge_order=order), axis=-1)
     gradient = np.empty(scalar.shape + (3,))
     determinant = np.linalg.det(metric); scale = np.linalg.norm(metric, axis=(-2, -1))
@@ -254,15 +311,17 @@ def _curvilinear_gradient(xyz: np.ndarray, scalar: np.ndarray) -> np.ndarray:
 
 
 def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str], temp_dir: Path | None,
-            memory_budget_gb: float | None, region: str = "auto", keep_temp: bool = False,
-            verify_readback: bool = False) -> Path:
+            memory_budget_gb: float | None, region: str = "auto", solver_model: dict | None = None,
+            keep_temp: bool = False, verify_readback: bool = False) -> Path:
     """Convert with bounded RAM; all full-size buffers are disk-backed memmaps."""
     unknown = sorted(set(fields) - set(_FIELDS))
     if unknown: raise ValueError(f"Unknown output fields: {unknown}; choose from {sorted(_FIELDS)}")
     region = resolve_region(fields, region)
+    solver_model = check_solver_model(fields, solver_model)
     wanted = set(fields)
     tokens = _tokens(wanted)
     need_gradient, need_current, need_additive = "grad" in tokens, "J" in tokens, "Badd" in tokens
+    need_centers = need_gradient or "ctr" in tokens
     need_induced = "B" in tokens
     species = ({"U_H"} if "H" in tokens else set()) | ({"U_Na"} if "Na" in tokens else set())
     manifest = load_manifest(static_dir)
@@ -289,7 +348,7 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
         cell_index = _map(work / "cell-index.i64", "int64", cell_max + 1, -1)
         points = _map(work / "points.f64", "float64", (node_count, 3))
         cell_flags = _map(work / "cell-flags.u32", "uint32", cell_count)
-        centers = _map(work / "cell-centers.f64", "float64", (cell_count, 3)) if need_gradient else None
+        centers = _map(work / "cell-centers.f64", "float64", (cell_count, 3)) if need_centers else None
         # Deterministic rank-order allocation from solver owner IDs, not coordinates.
         node_cursor = cell_cursor = 0
         for rank in range(ranks):
@@ -298,7 +357,7 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                 raise ValueError(f"rank {rank}: duplicate purported owner global IDs")
             node_index[node_gid] = np.arange(node_cursor, node_cursor + len(node_gid)); points[node_cursor:node_cursor + len(node_gid)] = xyz
             cell_index[cell_gid] = np.arange(cell_cursor, cell_cursor + len(cell_gid))
-            extra = cell_geometry(static_dir / files["geometry"][rank], manifest, centers=need_gradient)
+            extra = cell_geometry(static_dir / files["geometry"][rank], manifest, centers=need_centers)
             if not np.array_equal(extra["cell_global_id"], cell_gid):
                 raise ValueError(f"rank {rank}: cell flag/centre rows do not follow cell_global_id")
             cell_flags[cell_cursor:cell_cursor + len(cell_gid)] = extra["cell_flags"]
@@ -544,6 +603,38 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                 if gradient is not None and j_cells is not None:
                     electric["E_generalized"][part] = electric["E_motional"][part] + electric["E_Hall"][part] + electric["E_ambipolar"][part]
                 out.update({name: value * 1e3 for name, value in electric.items()})
+            solver_fields = {base_field(name) for name in fields} & _SOLVER_ONLY
+            if solver_fields:
+                assert solver_model is not None
+                r_lo, r_hi, floor = (solver_model[key] for key in SOLVER_MODEL_KEYS)
+                n_ref = solver_model.get("reference_number_density", norm["density_ref"] / float(constants["particle_mass_H"]))
+                if "ctr" in tokens:
+                    radius = np.linalg.norm(np.asarray(centers[start:stop]), axis=1)
+                    out["hall_taper"] = (np.where(radius >= r_lo, 1.0, 0.0) if r_hi <= r_lo
+                                         else 0.5 * (1.0 + np.tanh(2.0 * (radius - 0.5 * (r_lo + r_hi)) / (r_hi - r_lo))))
+                if len(conserved) == 2:
+                    ne_eff = n_ref * np.sqrt((n_e / n_ref) ** 2 + floor ** 2)
+                    out["electron_number_density_reg"] = ne_eff * 1e-6
+                    chi = {"H": n_h / ne_eff, "Na": n_na / ne_eff}
+                    chi["ion"] = chi["H"] + chi["Na"]
+                    if j_cells is not None and b_total_nd is not None:
+                        jxb = np.cross(j_cells[start:stop][part] * norm["current_density_ref"], b_total_nd[part] * norm["magnetic_field_ref"])  # N/m^3
+                        for key, weight in chi.items():
+                            force = np.full((stop - start, 3), np.nan); force[part] = weight[part, None] * jxb * 1e15
+                            out[f"{key}_Hall_force"] = force
+                        if "ctr" in tokens:
+                            hall = np.full((stop - start, 3), np.nan)
+                            hall[part] = out["hall_taper"][part, None] * jxb / (_ELEMENTARY_CHARGE * ne_eff[part, None])
+                            out["E_Hall_solver"] = hall * 1e3
+                    if gradient is not None:
+                        pressure_force = -np.asarray(gradient[start:stop])  # -grad(p_e), N/m^3
+                        ambipolar = np.full((stop - start, 3), np.nan); ambipolar[part] = pressure_force[part] / (_ELEMENTARY_CHARGE * ne_eff[part, None])
+                        out["E_ambipolar_solver"] = ambipolar * 1e3
+                        for key, weight in chi.items():
+                            force = np.full((stop - start, 3), np.nan); force[part] = weight[part, None] * pressure_force[part] * 1e15
+                            out[f"{key}_ambipolar_force"] = force
+                    if "E_generalized_solver" in solver_fields:
+                        out["E_generalized_solver"] = out["E_motional"] + out["E_Hall_solver"] + out["E_ambipolar_solver"]
             for name in fields:
                 base = base_field(name)
                 value = out[base]
@@ -648,6 +739,11 @@ def convert(*, static_dir: Path, data_dir: Path, output: Path, fields: list[str]
                            "physical_constants": {**{k: float(v) for k, v in constants.items()}, "elementary_charge": _ELEMENTARY_CHARGE,
                                                   "boltzmann_constant": _BOLTZMANN},
                            "nondimensional_scales": scales,
+                           **({"solver_model": {**solver_model, "reference_number_density": solver_model.get("reference_number_density", norm["density_ref"] / float(constants["particle_mass_H"])),
+                                "hall_taper": "0.5*(1+tanh(2*(r-(r_min+r_max)/2)/(r_max-r_min))), r = cell-centre radius in R_M; applied to the Hall induction EMF only",
+                                "n_e_reg": "sqrt(n_e^2 + ne_hall_floor^2), n_e and floor in units of reference_number_density; used by Hall and ambipolar EMF and by the species weights n_s/n_e,eff",
+                                "momentum_hall": "momentum source = (n_s/n_e,eff) J x B, no radial taper", "source": "MPCNS_Mercury, branch Mercury, Z4_Mercury"}}
+                              if solver_model else {}),
                            "convention": "nondimensional = SI value / <name>_ref; fields named <X>_nd = <X> * nondimensional_scales[category].to_nondimensional; "
                                          "coordinates are already in units of length_ref (R_M)"},
             conversion={"report": report, "memory": diagnostics.report()})

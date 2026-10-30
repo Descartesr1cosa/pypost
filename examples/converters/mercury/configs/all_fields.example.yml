@@ -11,6 +11,20 @@ input:
 # auto | fluid | solid | all.  Fluid-only fields (H/Na, E_*) force fluid.
 region: auto
 
+# data | solver | both.  `data` computes E_Hall / E_ambipolar / E_generalized from the
+# data alone (n_e = n_H + n_Na, no taper).  `solver` swaps them for *_solver, which follow
+# the solver's induction EMFs: n_e,eff = sqrt(n_e^2 + ne_hall_floor^2) and, for Hall only,
+# the radial taper 0.5 (1 + tanh(2 (r - mid) / (r_max - r_min))).  `both` writes both.
+hall_model: both
+
+# Case-specific solver parameters (CASE/setup/3_MHD_Control.txt r_min, r_max; solver ne_hall_floor
+# in MercurySolver_Tools.cpp).  Required whenever a *_solver, *_force, hall_taper or *_reg field is written.
+solver_model:
+  hall_taper_r_min: 1.3
+  hall_taper_r_max: 1.7
+  ne_hall_floor: 0.01
+  # reference_number_density: 4.0e7   # m^-3; default density_ref / particle_mass_H
+
 # none | both | only.  `both` adds a nondimensional <field>_nd twin (SI value /
 # solver reference) for every field that has one; `only` writes just the twins.
 nondimensional: both
@@ -44,6 +58,14 @@ fields:
   - E_Hall
   - E_ambipolar
   - E_generalized
+  - electron_number_density_reg
+  - hall_taper
+  - H_Hall_force
+  - Na_Hall_force
+  - ion_Hall_force
+  - H_ambipolar_force
+  - Na_ambipolar_force
+  - ion_ambipolar_force
 
 output:
   path: processed/mercury_all_003532299.vtu
