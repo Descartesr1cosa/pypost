@@ -1,5 +1,6 @@
-# Backward-compatible pointer to the self-contained official demo.
+# Repository workflow example. Copy it to a writable project directory before
+# changing inputs or output; the canonical synthetic input is wheel-owned.
 datasets:
-  - {path: ../../examples/assets/curve_demo/reference.csv, x: x, y: Cd, label: reference, style: {color: C0}}
+  - {path: ../../../sciplot/demos/curve_demo/reference.csv, x: x, y: Cd, label: reference, style: {color: C0}}
 plot:
-  output: ../../output/curve_comparison.png
+  output: output/curve_comparison.png

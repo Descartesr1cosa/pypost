@@ -1,19 +1,14 @@
 """Small, dependency-free-from-Mercury coverage for the streamed VTU writer."""
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import numpy as np
 import pytest
 
 pytest.importorskip("pyvista")
 
-ROOT = Path(__file__).parents[1]
-sys.path.insert(0, str(ROOT / "examples" / "converters" / "mercury"))
-from streaming import write_vtu  # noqa: E402
+from examples.converters.mercury.streaming import write_vtu
 
-from sciplot import Data3D, validate_dataset  # noqa: E402
+from sciplot import Data3D, validate_dataset
 
 
 def _map(path, dtype, shape, values):

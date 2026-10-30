@@ -12,7 +12,7 @@ import numpy as np
 
 from sciplot import Data3D
 
-from streaming import Diagnostics, geometry, load_manifest, reconstruction, restart_fields, topology_maps, write_vtu
+from .streaming import Diagnostics, geometry, load_manifest, reconstruction, restart_fields, topology_maps, write_vtu
 
 
 _FIELDS = {
@@ -20,6 +20,10 @@ _FIELDS = {
     "Na_density": ("U_Na", "scalar"), "Na_velocity": ("U_Na", "vector"), "Na_pressure": ("U_Na", "scalar"),
     "B_induced": ("B", "vector"),
 }
+
+# Public converter schema.  Keep this next to the solver-specific decoder so
+# the YAML front end never has to duplicate or guess Mercury field names.
+SUPPORTED_FIELDS = tuple(_FIELDS)
 
 
 def _map(path: Path, dtype, shape, fill=None) -> np.memmap:

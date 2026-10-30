@@ -1,4 +1,4 @@
-"""Run: python examples/example_2d.py"""
+"""Run from a writable directory: python path/to/examples/python_api/example_2d.py."""
 from pathlib import Path
 import numpy as np
 from sciplot import Data2D, Plot2D

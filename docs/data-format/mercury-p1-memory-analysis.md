@@ -67,11 +67,8 @@ On the supplied `Step_003532299_Time_7.988853e+01` restart, the command below
 completed under its 4 GiB budget:
 
 ```bash
-python examples/converters/mercury/mercury_to_data3d.py \
-  --static-dir /workspace/tCOM/pypost_examples/exampleMercury_data/DATA_bin \
-  --data-dir /workspace/tCOM/pypost_examples/exampleMercury_data/DATA_archive/Step_003532299_Time_7.988853e+01 \
-  --output /tmp/mercury_B_003532299.vtu \
-  --fields B_induced --memory-budget-gb 4 --temp-dir /tmp --keep-temp
+python -m examples.converters.mercury \
+  --config mercury.yml
 ```
 
 The artifact is `/tmp/mercury_B_003532299.vtu` (144,115,106 bytes; 138 MiB),

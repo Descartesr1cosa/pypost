@@ -15,13 +15,13 @@ slices:
     normal: [0, -1, 0]
     u_direction: [1, 0, 0]
     fields: [B_induced, B_induced_mag]
-    output: derived/xz.vtp
+    output: output/derived/xz.vtp
 
   - name: oblique
     origin: [0, 0, 0]
     normal: [1, 1, 1]
     fields: [B_induced_mag]
-    output: derived/oblique.vtp
+    output: output/derived/oblique.vtp
 
 lines:
   - name: x_profile
@@ -29,4 +29,4 @@ lines:
     end: [3, 0, 0]
     n_points: 501
     fields: [B_induced, B_induced_mag]
-    output: derived/x_profile.npz
+    output: output/derived/x_profile.npz

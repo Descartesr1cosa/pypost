@@ -1,4 +1,4 @@
-"""Run: python examples/example_3d.py (uses off-screen rendering)."""
+"""Run from a writable directory; this example uses off-screen rendering."""
 from pathlib import Path
 import numpy as np
 import pyvista as pv

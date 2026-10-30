@@ -1,0 +1,27 @@
+# Copy this file outside the repository and replace data_root before use.
+kind: mercury-data3d
+
+paths:
+  data_root: /path/to/exampleMercury_data
+
+input:
+  static_dir: DATA_bin
+  data_dir: DATA_archive/Step_003532299_Time_7.988853e+01
+
+fields:
+  - B_induced
+  - H_density
+  - H_velocity
+  - H_pressure
+  - Na_density
+  - Na_velocity
+  - Na_pressure
+
+output:
+  path: processed/mercury_all_003532299.vtu
+
+runtime:
+  memory_budget_gb: 6
+  temp_dir: processed/tmp
+  keep_temp: false
+  verify_readback: false

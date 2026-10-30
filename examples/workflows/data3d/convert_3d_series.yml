@@ -5,9 +5,9 @@ input:
 series:
   - time: 60.0
     input: {path: path/to/raw_60.vtu}
-    output: ../../output/volume_60.vtu
+    output: output/volume_60.vtu
   - time: 60.5
     input: {path: path/to/raw_60_5.vtu}
-    output: ../../output/volume_60_5.vtu
+    output: output/volume_60_5.vtu
 output:
-  index: ../../output/volume_times.json
+  index: output/volume_times.json

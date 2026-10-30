@@ -7,12 +7,12 @@ processing:
   q_field: Q
   iso: 0.01
 output:
-  surface: ../../output/q_t{time:.3f}.vtp
+  surface: output/q_t{time:.3f}.vtp
 scene:
   color_field: speed
   image_size: [1280, 720]
 batch:
   retries: 2
   timeout: 900
-  log_dir: ../../output/q_logs
-  manifest: ../../output/q_manifest.json
+  log_dir: output/q_logs
+  manifest: output/q_manifest.json

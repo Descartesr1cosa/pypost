@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """Run YAML-declared calculations and create a visual output.
 
-Run: python scripts/calculate_and_plot.py configs/plot.yml
+Run: python examples/python_api/calculate_and_plot.py plot.yml
 """
 from __future__ import annotations
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 from sciplot import Plot1D, Plot2D, Plot3D

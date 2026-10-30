@@ -1,0 +1,12 @@
+kind: table-data1d
+
+input:
+  path: ../../sample_external_table.txt
+  x: time
+
+output:
+  path: output/force_history.npz
+
+exports:
+  ascii: output/force_history.csv
+  csv: output/force_history_export.csv

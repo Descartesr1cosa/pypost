@@ -21,7 +21,7 @@ def test_band_is_scaled_with_y_values_and_paper_style(tmp_path):
 
 def test_bundled_curve_demo_generates_pdf_and_svg(tmp_path):
     root = __import__("pathlib").Path(__file__).parents[1]
-    config_path = root / "examples" / "assets" / "curve_demo" / "curve_comparison.yml"
+    config_path = root / "sciplot" / "demos" / "curve_demo" / "curve_comparison.yml"
     config = yaml.safe_load(config_path.read_text())
     config["plot"]["outputs"] = [str(tmp_path / "demo.pdf"), str(tmp_path / "demo.svg")]
     result = compare(config, config_path.parent)

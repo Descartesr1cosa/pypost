@@ -1,7 +1,7 @@
 # Existing lightweight Q surface: no volume data or Q computation required.
 input:
-  surface: ../../examples/assets/q_demo/Q_sample.vtp
-camera: ../../examples/assets/q_demo/camera.json
+  surface: ../../../sciplot/demos/q_demo/Q_sample.vtp
+camera: ../../../sciplot/demos/q_demo/camera.json
 scene:
   image_size: [1280, 720]
   background: white
@@ -15,5 +15,5 @@ scene:
   time_label: true
   time_format: "t* = {time:.3f}"
 output:
-  image: ../../output/q_sample.png
+  image: output/q_sample.png
 time: 60.5

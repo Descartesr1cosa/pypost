@@ -1,4 +1,5 @@
 .env/
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -6,8 +7,16 @@ build/
 dist/
 *.egg-info/
 output/
+pypost-demo-output/
+.coverage
+htmlcov/
 
 # Large local artifacts from the Mercury -> Data3D integration converter.
 mercury-data3d-*/
 mercury_*.vtu
 *.vtu.partial
+
+# Outputs generated when a checked-out example template is run in place.
+examples/workflows/**/output/
+examples/converters/**/output/
+examples/converters/**/tmp/

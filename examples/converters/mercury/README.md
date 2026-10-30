@@ -1,40 +1,72 @@
-# Mercury → Data3D v1
+# Mercury MPCNS v3 → Data3D v1
 
-This is a one-time, Mercury-specific adapter.  It uses the supplied
-`mpcns_post` package to parse its documented binary files, reconcile global
-owner/alias maps, apply its face-form/DEC reconstruction operators, and project
-approved cell values to the globally unique node table.  No module in
-`sciplot/` imports `mpcns_post`.
+This repository-local adapter converts one Mercury MPCNS binary restart into a
+self-contained, globally unique-node Data3D v1 `.vtu`. It is not imported by
+`sciplot`. The streaming reader uses the documented MPCNSBIN v3 layout,
+owner/alias topology maps, solver reconstruction operators, and disk-backed
+buffers; no generic pypost feature knows about halo cells, DEC, Hodge, or MPI.
 
-```bash
-python examples/converters/mercury/mercury_to_data3d.py \
-  --static-dir /workspace/tCOM/pypost_examples/exampleMercury_data/DATA_bin \
-  --data-dir /workspace/tCOM/pypost_examples/exampleMercury_data/DATA_archive/Step_003532299_Time_7.988853e+01 \
-  --output mercury_003532299.vtu
+## Run with YAML
 
-pypost inspect mercury_003532299.vtu
-pypost validate mercury_003532299.vtu --deep
-```
-
-The converter stops on a missing owner map, a topology shape mismatch, or a
-collapsed axis cell.  It does not merge coordinates, average interface values,
-or write a superficially valid degenerate hexahedron.  A polar-cell conversion
-rule must be implemented from authoritative solver topology before a case with
-such cells can be exported.
-
-The default is a 4 GiB observed-RSS ceiling and disk-backed temporary buffers.
-For a small first acceptance artifact, request only the confirmed magnetic
-field and retain diagnostics:
+Copy a template outside the repository, set `paths.data_root`, and run:
 
 ```bash
-python examples/converters/mercury/mercury_to_data3d.py \
-  --static-dir .../DATA_bin --data-dir .../Step_003532299_Time_7.988853e+01 \
-  --output mercury_B.vtu --fields B_induced --memory-budget-gb 4 \
-  --temp-dir /fast/scratch --keep-temp
+cp examples/converters/mercury/configs/b_only.example.yml mercury.yml
+python -m examples.converters.mercury --config mercury.yml
 ```
 
-The supported output names are `B_induced`, `H_density`, `H_velocity`,
-`H_pressure`, `Na_density`, `Na_velocity`, and `Na_pressure`.  The converter
-uses the documented `MPCNSBIN` v3/restart layout directly; it has no runtime
-dependency on `mpcns_post`.  `--verify-readback` uses PyVista after writing and
-may require memory comparable to the output dataset.
+Available templates:
+
+- `configs/b_only.example.yml` — `B_induced` only, for a small acceptance artifact.
+- `configs/all_fields.example.yml` — all currently confirmed H/Na/B fields.
+
+```yaml
+kind: mercury-data3d
+paths: {data_root: /path/to/exampleMercury_data}
+input:
+  static_dir: DATA_bin
+  data_dir: DATA_archive/Step_003532299_Time_7.988853e+01
+fields: [B_induced]
+output: {path: processed/mercury_B.vtu}
+runtime:
+  memory_budget_gb: 4
+  temp_dir: processed/tmp
+  keep_temp: false
+  verify_readback: false
+```
+
+`data_root` is absolute as written, or relative to the YAML file. Every
+relative path in `input`, `output`, and `runtime.temp_dir` is then resolved
+under it. Absolute values are preserved, so the rule is independent of the
+current working directory.
+
+Before opening any rank payload, the entry point verifies manifest and rank
+files, supported fields, a positive memory budget, legal temporary directory,
+and a non-directory `.vtu` target. It refuses an existing output unless
+`output.overwrite: true` is explicitly set.
+
+```bash
+pypost inspect /path/to/processed/mercury_B.vtu
+pypost validate /path/to/processed/mercury_B.vtu --deep
+```
+
+## Compatibility flags
+
+The lower-level flags remain available for development diagnostics:
+
+```bash
+python -m examples.converters.mercury \
+  --static-dir /data/DATA_bin --data-dir /data/DATA_archive/Step_000000001 \
+  --output /scratch/mercury.vtu --fields B_induced --memory-budget-gb 4
+```
+
+Prefer YAML for repeatable work. `--overwrite` is mandatory to replace a
+result. `--verify-readback` uses PyVista after writing and may require memory
+comparable to the final output. `--keep-temp` preserves memmaps and diagnostics
+for troubleshooting.
+
+The converter stops on missing owner maps, topology mismatches, duplicate owner
+IDs, alias inconsistencies, and degenerate polar hexahedra. It never merges
+nodes by coordinate or silently averages interface values. See the
+[memory analysis](../../../docs/data-format/mercury-p1-memory-analysis.md) for
+the validated streaming design and measured artifact.
