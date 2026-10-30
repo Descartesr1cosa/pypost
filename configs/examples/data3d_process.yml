@@ -1,0 +1,32 @@
+# Replace input.path with a self-contained Data3D v1 .vtu file.
+kind: data3d-process
+
+input:
+  path: mercury_B_003532299.vtu
+
+derived:
+  - name: B_induced_mag
+    operation: magnitude
+    field: B_induced
+
+slices:
+  - name: xz
+    origin: [0, 0, 0]
+    normal: [0, -1, 0]
+    u_direction: [1, 0, 0]
+    fields: [B_induced, B_induced_mag]
+    output: derived/xz.vtp
+
+  - name: oblique
+    origin: [0, 0, 0]
+    normal: [1, 1, 1]
+    fields: [B_induced_mag]
+    output: derived/oblique.vtp
+
+lines:
+  - name: x_profile
+    start: [-3, 0, 0]
+    end: [3, 0, 0]
+    n_points: 501
+    fields: [B_induced, B_induced_mag]
+    output: derived/x_profile.npz

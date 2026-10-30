@@ -120,6 +120,8 @@ def main(argv=None) -> int:
     validate_p = commands.add_parser("validate", help="Validate a pypost standard dataset without modifying it")
     validate_p.add_argument("data_path")
     validate_p.add_argument("--deep", action="store_true", help="Also calculate file/dependency SHA-256 checksums")
+    process_p = commands.add_parser("process", help="Run generic Data3D v1 derived-field, slice, and line operations")
+    process_p.add_argument("config", help="data3d-process YAML configuration")
     demo_p = commands.add_parser("demo", help="Discover and run bundled self-contained workflows").add_subparsers(dest="demo_command", required=True)
     demo_p.add_parser("list", help="List bundled demos")
     demo_run = demo_p.add_parser("run", help="Run a bundled demo using the normal core workflow")
@@ -175,6 +177,12 @@ def main(argv=None) -> int:
         result = validate_dataset(args.data_path, args.deep)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["valid"] else 1
+    if args.command == "process":
+        import json
+        from .processing import process_data3d_yaml
+        result = process_data3d_yaml(args.config)
+        print(json.dumps({name: str(path) for name, path in result.items()}, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "doctor": print(_doctor()); return 0
     if args.command in {"style", "layout"}:
         from .plotting.paper1d import export_profile

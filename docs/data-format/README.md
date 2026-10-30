@@ -5,6 +5,9 @@ For the strict solver-independent 3-D interface introduced for Data3D, see
 compatibility guidance for existing OpenFOAM and Q workflows; they do not make
 a `.vtm`, `.vti`, or sidecar-only file a conforming Data3D v1 dataset.
 
+For generic algebraic fields, arbitrary volume slices, and line probes after
+conversion, see [Data3D processing](../tutorials/data3d-processing.md).
+
 This document is the contract for converter authors. A converter reads any
 solver, instrument, or laboratory format and writes a pypost standard dataset.
 The core library deliberately does not need to learn every external format.
